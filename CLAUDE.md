@@ -23,3 +23,12 @@ L'utilisateur remplit la base au fur et à mesure **en conversation** : « j'ai 
 ## Routine utile
 
 En début de session, ou quand l'utilisateur demande « quoi faire aujourd'hui » : `generer`, puis `relances`, puis `suivis` et `du`.
+
+## Le site (outil principal)
+
+L'utilisateur remplit lui-même ses données sur le site : https://claude.ai/artifact/4wvZNQfJnyVpusE1YakU1N
+- Code source : `site/index.html`. Pour le modifier, éditer ce fichier et le republier avec l'outil Artifact en passant cette URL comme `url`.
+- Les données vivent dans la base de l'artifact : collections `clients`, `ventes`, `paiements`, `suivis`. Elles se lisent et s'écrivent avec l'outil `ArtifactData` (même URL). La forme des documents est décrite en tête du script de `site/index.html`.
+- Les règles d'accès (lecture et écriture au niveau `admin`) rendent les données invisibles à toute personne qui n'est pas propriétaire ou éditeur, même si le lien est partagé.
+- Les montants calculés (payé, différence, dû ce mois, commissions, État) ne sont jamais stockés : le site les calcule à partir des ventes, des plans et des paiements.
+- La copie de sécurité se fait depuis l'onglet Sauvegarde du site (fichier .json téléchargé). L'outil en ligne de commande de `crm/` reste disponible, mais il a sa propre base, distincte de celle du site.

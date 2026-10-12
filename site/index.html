@@ -1,0 +1,979 @@
+<title>Suivi des commissions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Mise en page : registre de travail — barre d'onglets en haut, contenu en colonne unique,
+   tableaux denses à chiffres alignés, fiches et formulaires en panneaux modaux. */
+:root {
+  --bg: #f4f5f2;
+  --surface: #ffffff;
+  --surface-2: #eceee9;
+  --line: #d7dbd3;
+  --fg: #1a2320;
+  --muted: #5a6661;
+  --accent: #0f5c6e;
+  --accent-fg: #ffffff;
+  --accent-soft: #d9e9ed;
+  --ok: #2b7a4b;
+  --ok-soft: #dff0e5;
+  --warn: #8f5a00;
+  --warn-soft: #f8ecd2;
+  --bad: #b3261e;
+  --bad-soft: #f7dfdc;
+  --neutral-soft: #e6e8ee;
+  --shadow: 0 10px 30px rgba(20, 35, 30, .14);
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111614; --surface: #19201d; --surface-2: #212926; --line: #313a36;
+    --fg: #e5ebe8; --muted: #98a49f; --accent: #63b7ca; --accent-fg: #062228; --accent-soft: #15343b;
+    --ok: #6fc191; --ok-soft: #173124; --warn: #e3ad4d; --warn-soft: #382a0f;
+    --bad: #f0897f; --bad-soft: #3c1a17; --neutral-soft: #262b33;
+    --shadow: 0 10px 30px rgba(0, 0, 0, .5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111614; --surface: #19201d; --surface-2: #212926; --line: #313a36;
+  --fg: #e5ebe8; --muted: #98a49f; --accent: #63b7ca; --accent-fg: #062228; --accent-soft: #15343b;
+  --ok: #6fc191; --ok-soft: #173124; --warn: #e3ad4d; --warn-soft: #382a0f;
+  --bad: #f0897f; --bad-soft: #3c1a17; --neutral-soft: #262b33;
+  --shadow: 0 10px 30px rgba(0, 0, 0, .5);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--f-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 0 64px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -.01em; }
+h2 { font-size: 1.35rem; }
+h3 { font-size: 1.05rem; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+
+/* ---------- En-tête */
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 1240px; margin: 0 auto; padding: 14px 16px 0; display: flex; flex-wrap: wrap; align-items: end; gap: 8px 24px; }
+.brand { display: flex; align-items: baseline; gap: 10px; padding-bottom: 12px; }
+.brand h1 { font-size: 1.3rem; }
+.sync { font-size: .78rem; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.sync.ok::before { background: var(--ok); }
+.sync.bad::before { background: var(--bad); }
+nav.tabs { display: flex; gap: 2px; overflow-x: auto; margin-left: auto; scrollbar-width: none; }
+nav.tabs button { border: 0; background: none; padding: 10px 14px 12px; cursor: pointer; color: var(--muted); font-weight: 500; border-bottom: 3px solid transparent; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+nav.tabs button:hover { color: var(--fg); }
+nav.tabs .count { font-family: var(--f-num); font-size: .75rem; margin-left: 4px; color: var(--muted); }
+
+/* ---------- Structure */
+main { display: grid; gap: 28px; padding-top: 24px; }
+main > *, .dlg-body > *, .dlg-body > div > .panel { min-width: 0; }
+.section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
+.section-head .spacer { flex: 1; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.panel-pad { padding: 16px 18px; }
+.banner { padding: 12px 16px; border-radius: var(--r); background: var(--warn-soft); color: var(--fg); border: 1px solid var(--line); }
+.banner.bad { background: var(--bad-soft); }
+
+/* ---------- Boutons */
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); padding: 7px 13px; border-radius: 6px; cursor: pointer; font-weight: 500; line-height: 1.3; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--bad); }
+.btn.danger.armed { background: var(--bad); color: var(--surface); border-color: var(--bad); }
+.btn.sm { padding: 3px 9px; font-size: .85rem; }
+.btn.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+/* ---------- Indicateurs */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.kpi { padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.kpi .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.kpi .value { font-family: var(--f-num); font-variant-numeric: tabular-nums; font-size: 1.45rem; font-weight: 500; }
+.kpi .value .cur { font-size: .8rem; color: var(--muted); margin-left: 4px; }
+.kpi .sub { font-size: .82rem; color: var(--muted); }
+.kpi.alert { border-left: 4px solid var(--bad); }
+
+/* ---------- Puces d'état */
+.chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .78rem; font-weight: 600; white-space: nowrap; }
+.chip.paye { background: var(--ok-soft); color: var(--ok); }
+.chip.retard { background: var(--bad-soft); color: var(--bad); }
+.chip.partiel { background: var(--warn-soft); color: var(--warn); }
+.chip.recevoir, .chip.avenir { background: var(--neutral-soft); color: var(--muted); }
+.chip.mois { background: var(--accent-soft); color: var(--accent); }
+.chip.annule { background: var(--surface-2); color: var(--muted); text-decoration: line-through; }
+.chip.etape { background: var(--surface-2); color: var(--fg); font-weight: 500; }
+
+/* ---------- Tableaux */
+.tscroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; white-space: nowrap; background: var(--surface-2); position: sticky; top: 0; }
+td.r, th.r { text-align: right; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr.click { cursor: pointer; }
+tbody tr.click:hover td { background: var(--surface-2); }
+tr.cancel td { color: var(--muted); }
+td .sub { display: block; font-size: .78rem; color: var(--muted); }
+tfoot td { font-weight: 600; background: var(--surface-2); border-bottom: 0; }
+
+/* ---------- Listes de suivis */
+.fu-list { display: grid; }
+.fu { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 14px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.fu:last-child { border-bottom: 0; }
+.fu .when { font-family: var(--f-num); font-size: .82rem; min-width: 92px; }
+.fu .what { min-width: 0; }
+.fu .what .sub { font-size: .8rem; color: var(--muted); }
+.fu.late .when { color: var(--bad); font-weight: 500; }
+.fu.done .what { color: var(--muted); text-decoration: line-through; }
+.prio-haute::after { content: " ▲"; color: var(--bad); font-size: .7rem; }
+.group-title { padding: 10px 16px 6px; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+
+/* ---------- États vides */
+.empty { padding: 28px 20px; text-align: left; display: grid; gap: 10px; justify-items: start; }
+.empty h3 { font-size: 1.1rem; }
+.empty p { margin: 0; color: var(--muted); max-width: 60ch; }
+.steps { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.step { padding: 16px; display: grid; gap: 8px; align-content: start; }
+.step .n { font-family: var(--f-num); color: var(--accent); font-size: .85rem; }
+
+/* ---------- Barre d'outils */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.toolbar input[type="search"], .toolbar select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-width: 0; }
+.toolbar input[type="search"] { width: 240px; max-width: 100%; }
+
+/* ---------- Fenêtres */
+dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(720px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); background: var(--surface); color: var(--fg); box-shadow: var(--shadow); }
+dialog::backdrop { background: rgba(10, 18, 16, .45); }
+.dlg { display: grid; grid-template-rows: auto 1fr auto; max-height: calc(100dvh - 34px); }
+.dlg-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.dlg-head h2 { flex: 1; font-size: 1.2rem; min-width: 0; }
+.dlg-body { padding: 18px 20px; overflow-y: auto; display: grid; gap: 18px; align-content: start; }
+.dlg-foot { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--surface-2); border-radius: 0 0 12px 12px; }
+.dlg-foot .spacer { flex: 1; }
+.x { border: 0; background: none; font-size: 1.4rem; line-height: 1; cursor: pointer; color: var(--muted); padding: 4px 8px; }
+
+/* ---------- Formulaires */
+.grid { display: grid; gap: 12px 14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.grid .full { grid-column: 1 / -1; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field > span { font-size: .8rem; font-weight: 600; color: var(--muted); }
+.field input, .field select, .field textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.field textarea { min-height: 70px; resize: vertical; }
+.field .hint { font-size: .78rem; color: var(--muted); }
+fieldset { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px 14px; margin: 0; display: grid; gap: 12px; min-width: 0; }
+legend { font-weight: 600; padding: 0 6px; font-size: .9rem; }
+.radios { display: flex; flex-wrap: wrap; gap: 6px; }
+.radios label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: .9rem; }
+.radios label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.preview { padding: 10px 12px; border-radius: 6px; background: var(--surface-2); font-size: .88rem; }
+.preview.err { background: var(--bad-soft); }
+.check { display: inline-flex; gap: 8px; align-items: center; }
+.err-msg { color: var(--bad); font-size: .88rem; }
+
+/* ---------- Fiche */
+dl.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; margin: 0; }
+dl.facts div { display: grid; gap: 2px; min-width: 0; }
+dl.facts dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ---------- Avis */
+#toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: .9rem; box-shadow: var(--shadow); z-index: 50; max-width: calc(100vw - 32px); }
+#toast.bad { background: var(--bad); color: var(--surface); }
+
+@media (max-width: 640px) {
+  nav.tabs { margin-left: 0; width: 100%; }
+  .kpi .value { font-size: 1.25rem; }
+  .fu { grid-template-columns: 1fr auto; }
+  .fu .when { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn, nav.tabs button { transition: background-color .15s, border-color .15s, color .15s; }
+}
+</style>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <h1>Suivi des commissions</h1>
+      <span id="sync" class="sync">Connexion…</span>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" data-tab="tableau">Tableau de bord</button>
+      <button role="tab" data-tab="ventes">Ventes<span class="count" id="c-ventes"></span></button>
+      <button role="tab" data-tab="clients">Clients<span class="count" id="c-clients"></span></button>
+      <button role="tab" data-tab="suivis">Suivis<span class="count" id="c-suivis"></span></button>
+      <button role="tab" data-tab="sauvegarde">Sauvegarde</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap"><main id="app"></main></div>
+
+<dialog id="dlg"><div id="dlg-in"></div></dialog>
+<div id="toast" hidden></div>
+
+<script>
+"use strict";
+/* =====================================================================
+   Données : 4 collections dans la base de la page (capacité db)
+     clients   {nom, entreprise, courriel, telephone, statut, source, notes, creeLe}
+     ventes    {nom, clientId, type, statut, premierContact, dateVente, rev, devise, methode,
+                tauxCommission, plan:{mode, nb, mensualite, premierVersement, fin}, annulee, notes, creeLe}
+     paiements {venteId, date, montant, methode, reference, creeLe}
+     suivis    {clientId, venteId, type, sujet, datePrevue, statut, priorite, recurrenceJours,
+                resultat, dateRealisee, creeLe}
+   Tout le reste (payé, différence, dû ce mois, commissions, État) est calculé.
+   ===================================================================== */
+const COLS = ["clients", "ventes", "paiements", "suivis"];
+const S = { clients: new Map(), ventes: new Map(), paiements: new Map(), suivis: new Map(),
+            loaded: new Set(), db: null, dbState: "attente", tab: "tableau", filtre: { q: "", etat: "" } };
+const TAUX_DEFAUT = 5;
+const ETAPES = ["Prospect", "Premier contact", "Soumission envoyée", "Négociation", "Signé", "Perdu"];
+const METHODES = ["Virement", "Interac", "Chèque", "Comptant", "Carte de crédit", "PayPal", "Stripe", "Wire"];
+const TYPES_VENTE = ["Nouveau", "Renouvellement", "Récurrent", "Service", "Projet"];
+const TYPES_SUIVI = { follow_up: "Follow-up", appel: "Appel", courriel: "Courriel", rencontre: "Rencontre",
+                      relance_paiement: "Relance de paiement", renouvellement: "Renouvellement", tache: "Tâche" };
+
+/* ---------- Utilitaires */
+const $ = (s, el = document) => el.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const r2 = x => Math.round((Number(x) || 0) * 100) / 100;
+const num = s => { if (s === null || s === undefined || s === "") return NaN; return parseFloat(String(s).replace(/[\s $]/g, "").replace(",", ".")); };
+const pad = n => String(n).padStart(2, "0");
+const isoLocal = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const today = () => isoLocal(new Date());
+const parseIso = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+function addMonths(iso, n) {
+  const d = parseIso(iso), day = d.getDate();
+  const t = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  t.setDate(Math.min(day, last));
+  return isoLocal(t);
+}
+const addDays = (iso, n) => { const d = parseIso(iso); d.setDate(d.getDate() + n); return isoLocal(d); };
+const endOfMonth = () => { const d = new Date(); return isoLocal(new Date(d.getFullYear(), d.getMonth() + 1, 0)); };
+const monthKey = iso => iso ? iso.slice(0, 7) : "";
+const fmtDate = iso => { if (!iso) return ""; const d = parseIso(iso); return d.toLocaleDateString("fr-CA", { day: "numeric", month: "short", year: "numeric" }); };
+const fmtCache = {};
+function money(x, cur = "CAD") {
+  const k = cur || "CAD";
+  fmtCache[k] ||= new Intl.NumberFormat("fr-CA", { style: "currency", currency: k, minimumFractionDigits: 2 });
+  return fmtCache[k].format(r2(x));
+}
+const nfmt = new Intl.NumberFormat("fr-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nombre = x => nfmt.format(r2(x));
+const pct = t => `${(Math.round(t * 10000) / 100).toLocaleString("fr-CA")} %`;
+const byName = (a, b) => (a.nom || "").localeCompare(b.nom || "", "fr", { sensitivity: "base" });
+const clientName = id => S.clients.get(id)?.nom || "(client supprimé)";
+
+/* ---------- Calculs : plan de paiement, paiements appliqués du plus vieux versement au plus récent */
+function planEntries(v) {
+  const p = v.plan || { mode: "unique" };
+  const start = p.premierVersement || v.dateVente || today();
+  const rev = r2(v.rev);
+  const out = [];
+  if (p.mode === "recurrent") {
+    const m = r2(p.mensualite);
+    if (m > 0) {
+      const limite = p.fin && p.fin < endOfMonth() ? p.fin : endOfMonth();
+      for (let i = 0, d = start; d <= limite && i < 600; i++, d = addMonths(start, i)) out.push({ date: d, montant: m });
+    }
+  } else if (p.mode === "versements") {
+    const n = Math.max(1, Math.floor(p.nb || 1)), part = r2(rev / n);
+    for (let i = 0; i < n; i++) out.push({ date: addMonths(start, i), montant: i < n - 1 ? part : r2(rev - part * (n - 1)) });
+  } else if (p.mode === "mensualite") {
+    const m = Math.min(r2(p.mensualite), rev);
+    if (m > 0) {
+      const n = Math.ceil(rev / m - 1e-9);
+      for (let i = 0; i < n; i++) out.push({ date: addMonths(start, i), montant: i < n - 1 ? m : r2(rev - m * (n - 1)) });
+    }
+  } else if (rev > 0) {
+    out.push({ date: start, montant: rev });
+  }
+  return out.filter(e => e.montant > 0);
+}
+function paiementsDe(venteId) {
+  return [...S.paiements.values()].filter(p => p.venteId === venteId).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+}
+function calc(v) {
+  const t = today(), fin = endOfMonth();
+  const entries = planEntries(v);
+  const pays = paiementsDe(v.id);
+  const paye = r2(pays.reduce((s, p) => s + (Number(p.montant) || 0), 0));
+  const recurrent = v.plan?.mode === "recurrent";
+  const rev = recurrent ? r2(entries.reduce((s, e) => s + e.montant, 0)) : r2(v.rev);
+  let reste = paye, cumul = 0;
+  const plan = entries.map((e, i) => {
+    const couvert = r2(Math.min(e.montant, Math.max(0, reste)));
+    reste = r2(reste - couvert); cumul = r2(cumul + e.montant);
+    const manque = r2(e.montant - couvert);
+    let etat = "Payé";
+    if (v.annulee) etat = "Annulé";
+    else if (manque > 0.005) etat = e.date < t ? "En retard" : monthKey(e.date) === monthKey(t) ? "Ce mois" : couvert > 0 ? "Partiel" : "À venir";
+    return { no: i + 1, nb: recurrent ? null : entries.length, ...e, paye: couvert, reste: manque, etat };
+  });
+  const prevuFinMois = entries.filter(e => e.date <= fin).reduce((s, e) => s + e.montant, 0);
+  const prevuEchu = entries.filter(e => e.date < t).reduce((s, e) => s + e.montant, 0);
+  const taux = v.tauxCommission ?? TAUX_DEFAUT / 100;
+  const du = v.annulee ? 0 : r2(Math.max(0, prevuFinMois - paye));
+  const retard = v.annulee ? 0 : r2(Math.max(0, prevuEchu - paye));
+  const prochain = plan.find(e => e.reste > 0.005);
+  let etat;
+  if (v.annulee) etat = "Annulée";
+  else if (rev > 0 && paye >= rev - 0.005) etat = recurrent ? "À jour" : "Payé";
+  else if (retard > 0.005) etat = "En retard";
+  else if (paye > 0) etat = "Partiel";
+  else etat = "À recevoir";
+  const fus = [...S.suivis.values()].filter(s => s.venteId === v.id && s.statut === "a_faire" && s.datePrevue).map(s => s.datePrevue).sort();
+  return { rev, paye, diff: r2(rev - paye), du, retard, taux, commission: r2(rev * taux), collectee: r2(paye * taux),
+           aRecevoir: r2((rev - paye) * taux), etat, plan, pays, prochain, recurrent, followUp: fus[0] || "" };
+}
+const chipClass = e => ({ "Payé": "paye", "À jour": "paye", "En retard": "retard", "Partiel": "partiel", "À recevoir": "recevoir",
+                          "À venir": "avenir", "Ce mois": "mois", "Annulée": "annule", "Annulé": "annule" }[e] || "recevoir");
+const chip = e => `<span class="chip ${chipClass(e)}">${esc(e)}</span>`;
+const ventesCalc = () => [...S.ventes.values()].map(v => ({ v, c: calc(v) }));
+
+/* ---------- Rendu */
+let renderQueued = false;
+function scheduleRender() { if (!renderQueued) { renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); } }
+function render() {
+  const act = document.activeElement, actId = act?.id, sel = act && "selectionStart" in act ? [act.selectionStart, act.selectionEnd] : null;
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === S.tab)));
+  $("#c-ventes").textContent = S.ventes.size || "";
+  $("#c-clients").textContent = S.clients.size || "";
+  const ouverts = [...S.suivis.values()].filter(s => s.statut === "a_faire").length;
+  $("#c-suivis").textContent = ouverts || "";
+  const sync = $("#sync");
+  sync.className = "sync " + (S.dbState === "ok" ? "ok" : S.dbState === "attente" ? "" : "bad");
+  sync.textContent = { ok: "Enregistré en ligne", attente: "Connexion…", absent: "Enregistrement indisponible", erreur: "Erreur de connexion" }[S.dbState];
+  const views = { tableau: viewTableau, ventes: viewVentes, clients: viewClients, suivis: viewSuivis, sauvegarde: viewSauvegarde };
+  $("#app").innerHTML = bannerHtml() + views[S.tab]();
+  if (actId && document.getElementById(actId) && actId !== "dlg") {
+    const el = document.getElementById(actId); el.focus();
+    if (sel && "setSelectionRange" in el) try { el.setSelectionRange(sel[0], sel[1]); } catch (_) {}
+  }
+}
+function bannerHtml() {
+  if (S.dbState === "absent") return `<div class="banner bad"><strong>L'enregistrement en ligne n'est pas disponible ici.</strong> Ouvre cette page depuis claude.ai en étant connecté pour ajouter et retrouver tes données.</div>`;
+  if (S.dbState === "erreur") return `<div class="banner bad"><strong>La connexion à la base a été interrompue.</strong> Recharge la page ; ce qui a déjà été enregistré n'est pas perdu.</div>`;
+  const last = lsGet("derniereSauvegarde");
+  if (S.dbState === "ok" && S.ventes.size + S.clients.size > 0 && (!last || (Date.now() - Date.parse(last)) > 14 * 864e5))
+    return `<div class="banner">Tes données sont enregistrées en ligne automatiquement. Pour avoir aussi une copie chez toi, <button class="btn link" data-action="tab" data-tab="sauvegarde">télécharge une sauvegarde</button>${last ? ` (dernière : ${fmtDate(last.slice(0, 10))})` : ""}.</div>`;
+  return "";
+}
+const canWrite = () => S.dbState === "ok";
+const dis = () => canWrite() ? "" : " disabled";
+
+/* ----- Tableau de bord */
+function totauxParDevise(list) {
+  const t = {}, mois = monthKey(today());
+  for (const { v, c } of list) {
+    if (v.annulee) continue;
+    const d = v.devise || "CAD";
+    t[d] ||= { du: 0, retard: 0, solde: 0, collecteeMois: 0, aRecevoir: 0, commission: 0 };
+    t[d].du += c.du; t[d].retard += c.retard; t[d].solde += c.diff; t[d].aRecevoir += c.aRecevoir; t[d].commission += c.commission;
+    t[d].collecteeMois += c.pays.filter(p => monthKey(p.date) === mois).reduce((s, p) => s + (Number(p.montant) || 0) * c.taux, 0);
+  }
+  return t;
+}
+function kpi(label, parDevise, key, sub, alert) {
+  const devs = Object.keys(parDevise);
+  const lines = devs.length ? devs.map(d => `<div class="value">${esc(nombre(parDevise[d][key]))}<span class="cur">${esc(d)}</span></div>`).join("")
+                            : `<div class="value">0,00<span class="cur">CAD</span></div>`;
+  return `<div class="panel kpi${alert ? " alert" : ""}"><span class="label">${esc(label)}</span>${lines}${sub ? `<span class="sub">${sub}</span>` : ""}</div>`;
+}
+function viewTableau() {
+  if (S.dbState === "ok" && !S.clients.size && !S.ventes.size) return onboarding();
+  const list = ventesCalc(), tot = totauxParDevise(list);
+  const enRetard = Object.values(tot).some(t => t.retard > 0.005);
+  const moisNom = new Date().toLocaleDateString("fr-CA", { month: "long", year: "numeric" });
+  const versements = [];
+  for (const { v, c } of list) for (const e of c.plan) if (e.reste > 0.005 && (e.etat === "En retard" || e.etat === "Ce mois")) versements.push({ v, c, e });
+  versements.sort((a, b) => a.e.date.localeCompare(b.e.date));
+  const t = today(), semaine = addDays(t, 7);
+  const fus = [...S.suivis.values()].filter(s => s.statut === "a_faire" && s.datePrevue && s.datePrevue <= semaine).sort(fuSort);
+  const sansRelance = list.filter(({ v, c }) => c.retard > 0.005 && ![...S.suivis.values()].some(s => s.venteId === v.id && s.type === "relance_paiement" && s.statut === "a_faire"));
+  return `
+  <section>
+    <div class="section-head"><h2>${esc(moisNom.charAt(0).toUpperCase() + moisNom.slice(1))}</h2><span class="spacer"></span>
+      <button class="btn" data-action="new-client"${dis()}>Nouveau client</button>
+      <button class="btn primary" data-action="new-vente"${dis()}>Nouvelle vente</button></div>
+    <div class="kpis">
+      ${kpi("Dû ce mois", tot, "du", "Versements du mois et retards", false)}
+      ${kpi("En retard", tot, "retard", enRetard ? "À relancer" : "Aucun retard", enRetard)}
+      ${kpi("Commission encaissée ce mois", tot, "collecteeMois", "Sur les paiements reçus ce mois-ci", false)}
+      ${kpi("Commissions à venir", tot, "aRecevoir", "Sur ce qui reste à payer", false)}
+    </div>
+  </section>
+  <section>
+    <div class="section-head"><h3>Versements à encaisser ce mois-ci</h3><span class="spacer"></span>
+      ${sansRelance.length ? `<button class="btn sm" data-action="relances"${dis()}>Créer ${sansRelance.length} relance${sansRelance.length > 1 ? "s" : ""} de paiement</button>` : ""}</div>
+    <div class="panel">${versements.length ? `<div class="tscroll"><table>
+      <thead><tr><th>Date</th><th>Client</th><th>Vente</th><th>Versement</th><th class="r">Montant</th><th class="r">Reste</th><th>État</th><th></th></tr></thead>
+      <tbody>${versements.map(({ v, c, e }) => `<tr class="click" data-action="open-vente" data-id="${esc(v.id)}">
+        <td class="num">${esc(fmtDate(e.date))}</td><td>${esc(clientName(v.clientId))}</td><td>${esc(v.nom)}</td>
+        <td class="num">${e.nb ? `${e.no}/${e.nb}` : `n° ${e.no}`}</td>
+        <td class="r num">${esc(money(e.montant, v.devise))}</td><td class="r num">${esc(money(e.reste, v.devise))}</td>
+        <td>${chip(e.etat)}</td>
+        <td class="r"><button class="btn sm" data-action="new-paiement" data-id="${esc(v.id)}" data-montant="${e.reste}"${dis()}>Encaisser</button></td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="empty"><p>Aucun versement à encaisser ce mois-ci.</p></div>`}</div>
+  </section>
+  <section>
+    <div class="section-head"><h3>Follow-ups des 7 prochains jours</h3><span class="spacer"></span>
+      <button class="btn sm" data-action="new-suivi"${dis()}>Ajouter un suivi</button></div>
+    <div class="panel">${fus.length ? `<div class="fu-list">${fus.map(fuRow).join("")}</div>` : `<div class="empty"><p>Rien de prévu cette semaine.</p></div>`}</div>
+  </section>`;
+}
+function onboarding() {
+  return `<section class="panel panel-pad" style="display:grid;gap:18px">
+    <div style="display:grid;gap:6px"><h2>Ton registre est prêt</h2>
+    <p class="muted" style="margin:0;max-width:62ch">Tout ce que tu ajoutes ici est enregistré en ligne automatiquement. Les montants payés, les soldes, ce qui est dû ce mois-ci et tes commissions se calculent tout seuls.</p></div>
+    <div class="steps">
+      <div class="panel step"><span class="n">Étape 1</span><h3>Ajoute un client</h3><p class="muted small" style="margin:0">Un prospect ou un client, avec ses coordonnées.</p><button class="btn primary" data-action="new-client"${dis()}>Nouveau client</button></div>
+      <div class="panel step"><span class="n">Étape 2</span><h3>Entre une vente</h3><p class="muted small" style="margin:0">Le REV, le plan de paiement mensuel et ton taux de commission (5 % par défaut).</p><button class="btn" data-action="new-vente"${dis()}>Nouvelle vente</button></div>
+      <div class="panel step"><span class="n">Étape 3</span><h3>Planifie un follow-up</h3><p class="muted small" style="margin:0">Un appel, un courriel ou une relance, avec rappel automatique.</p><button class="btn" data-action="new-suivi"${dis()}>Ajouter un suivi</button></div>
+    </div></section>`;
+}
+
+/* ----- Ventes : mêmes colonnes que le gabarit */
+function viewVentes() {
+  const q = S.filtre.q.trim().toLowerCase(), fe = S.filtre.etat;
+  const rows = ventesCalc().filter(({ v, c }) =>
+    (!q || `${v.nom} ${clientName(v.clientId)} ${v.type || ""} ${v.statut || ""} ${v.notes || ""}`.toLowerCase().includes(q)) &&
+    (!fe || c.etat === fe)).sort((a, b) => (b.v.dateVente || "").localeCompare(a.v.dateVente || ""));
+  const devs = [...new Set(rows.filter(r => !r.v.annulee).map(r => r.v.devise || "CAD"))];
+  const foot = devs.map(d => {
+    const rs = rows.filter(r => !r.v.annulee && (r.v.devise || "CAD") === d), s = k => rs.reduce((a, r) => a + r.c[k], 0);
+    return `<tr><td colspan="3">Total ${esc(d)}</td><td class="r num">${esc(money(s("rev"), d))}</td><td class="r num">${esc(money(s("paye"), d))}</td><td class="r num">${esc(money(s("diff"), d))}</td><td class="r num">${esc(money(s("du"), d))}</td><td></td><td class="r num">${esc(money(s("commission"), d))}</td><td class="r num">${esc(money(s("collectee"), d))}</td><td colspan="3"></td></tr>`;
+  }).join("");
+  return `<section>
+    <div class="section-head"><h2>Ventes</h2><span class="spacer"></span>
+      <div class="toolbar">
+        <input type="search" id="f-q" placeholder="Rechercher une vente ou un client" value="${esc(S.filtre.q)}" aria-label="Rechercher">
+        <select id="f-etat" aria-label="Filtrer par état"><option value="">Tous les états</option>${["En retard", "Partiel", "À recevoir", "Payé", "À jour", "Annulée"].map(e => `<option${e === fe ? " selected" : ""}>${e}</option>`).join("")}</select>
+        <button class="btn primary" data-action="new-vente"${dis()}>Nouvelle vente</button>
+      </div></div>
+    <div class="panel">${!S.ventes.size ? `<div class="empty"><h3>Aucune vente pour l'instant</h3><p>Chaque vente a son REV, son plan de paiement mensuel et son taux de commission. Les colonnes Payé, Différence, Dû ce mois, Commission et État se remplissent toutes seules.</p><button class="btn primary" data-action="new-vente"${dis()}>Entrer ma première vente</button></div>`
+      : !rows.length ? `<div class="empty"><p>Aucune vente ne correspond à ce filtre.</p></div>` : `<div class="tscroll"><table>
+      <thead><tr><th>Transaction</th><th>Client</th><th>Statut</th><th class="r">REV</th><th class="r">Payé</th><th class="r">Différence</th><th class="r">Dû ce mois</th><th class="r">Taux</th><th class="r">Commission</th><th class="r">Collectée</th><th>État</th><th>Follow-up</th><th></th></tr></thead>
+      <tbody>${rows.map(({ v, c }) => `<tr class="click${v.annulee ? " cancel" : ""}" data-action="open-vente" data-id="${esc(v.id)}">
+        <td><strong>${esc(v.nom)}</strong><span class="sub">${esc([v.type, planLabel(v, c)].filter(Boolean).join(" · "))}</span></td>
+        <td>${esc(clientName(v.clientId))}</td>
+        <td>${v.statut ? `<span class="chip etape">${esc(v.statut)}</span>` : ""}</td>
+        <td class="r num">${esc(money(c.rev, v.devise))}</td><td class="r num">${esc(money(c.paye, v.devise))}</td>
+        <td class="r num">${esc(money(c.diff, v.devise))}</td><td class="r num">${esc(money(c.du, v.devise))}</td>
+        <td class="r num">${esc(pct(c.taux))}</td><td class="r num">${esc(money(c.commission, v.devise))}</td><td class="r num">${esc(money(c.collectee, v.devise))}</td>
+        <td>${chip(c.etat)}</td><td class="num small">${esc(fmtDate(c.followUp))}</td>
+        <td class="r"><button class="btn sm" data-action="new-paiement" data-id="${esc(v.id)}"${v.annulee || !canWrite() ? " disabled" : ""}>Paiement</button></td></tr>`).join("")}</tbody>
+      <tfoot>${foot}</tfoot></table></div>`}</div></section>`;
+}
+function planLabel(v, c) {
+  const p = v.plan || {};
+  if (p.mode === "recurrent") return `${money(p.mensualite, v.devise)} / mois, sans fin`;
+  if (c.plan.length > 1) return `${c.plan.length} versements mensuels`;
+  return "Paiement unique";
+}
+
+/* ----- Clients */
+function soldeClient(id) {
+  const out = {};
+  for (const { v, c } of ventesCalc()) if (v.clientId === id && !v.annulee) { const d = v.devise || "CAD"; out[d] ||= { ventes: 0, solde: 0, n: 0 }; out[d].ventes += c.rev; out[d].solde += c.diff; out[d].n++; }
+  return out;
+}
+const parDevise = (o, k) => Object.entries(o).map(([d, t]) => money(t[k], d)).join("<br>") || "—";
+function viewClients() {
+  const list = [...S.clients.values()].sort(byName);
+  const statutChip = s => `<span class="chip ${s === "actif" ? "paye" : s === "prospect" ? "mois" : "recevoir"}">${esc({ prospect: "Prospect", actif: "Actif", inactif: "Inactif", perdu: "Perdu" }[s] || s || "Actif")}</span>`;
+  return `<section><div class="section-head"><h2>Clients</h2><span class="spacer"></span><button class="btn primary" data-action="new-client"${dis()}>Nouveau client</button></div>
+  <div class="panel">${!list.length ? `<div class="empty"><h3>Aucun client pour l'instant</h3><p>Ajoute tes clients et tes prospects avec leurs coordonnées. Chaque fiche regroupe leurs ventes, leurs paiements et leurs suivis.</p><button class="btn primary" data-action="new-client"${dis()}>Ajouter mon premier client</button></div>` : `<div class="tscroll"><table>
+    <thead><tr><th>Client</th><th>Statut</th><th>Coordonnées</th><th class="r">Ventes</th><th class="r">Ventes (REV)</th><th class="r">Solde dû</th><th>Prochain suivi</th></tr></thead>
+    <tbody>${list.map(cl => { const t = soldeClient(cl.id), n = Object.values(t).reduce((a, x) => a + x.n, 0);
+      const fu = [...S.suivis.values()].filter(s => s.clientId === cl.id && s.statut === "a_faire" && s.datePrevue).map(s => s.datePrevue).sort()[0];
+      return `<tr class="click" data-action="open-client" data-id="${esc(cl.id)}"><td><strong>${esc(cl.nom)}</strong>${cl.entreprise ? `<span class="sub">${esc(cl.entreprise)}</span>` : ""}</td>
+      <td>${statutChip(cl.statut)}</td><td class="small">${esc(cl.courriel || "")}${cl.telephone ? `<span class="sub">${esc(cl.telephone)}</span>` : ""}</td>
+      <td class="r num">${n}</td><td class="r num">${parDevise(t, "ventes")}</td><td class="r num">${parDevise(t, "solde")}</td><td class="num small">${esc(fmtDate(fu))}</td></tr>`; }).join("")}</tbody></table></div>`}</div></section>`;
+}
+
+/* ----- Suivis */
+const prioRank = p => p === "haute" ? 0 : p === "basse" ? 2 : 1;
+const fuSort = (a, b) => (a.datePrevue || "9999").localeCompare(b.datePrevue || "9999") || prioRank(a.priorite) - prioRank(b.priorite);
+function fuRow(s) {
+  const t = today(), late = s.statut === "a_faire" && s.datePrevue && s.datePrevue < t, v = s.venteId && S.ventes.get(s.venteId);
+  return `<div class="fu${late ? " late" : ""}${s.statut === "fait" ? " done" : ""}">
+    <span class="when">${s.datePrevue === t ? "Aujourd'hui" : esc(fmtDate(s.datePrevue) || "Sans date")}</span>
+    <span class="what"><span class="${s.priorite === "haute" ? "prio-haute" : ""}">${esc(s.sujet)}</span>
+      <span class="sub">${esc(TYPES_SUIVI[s.type] || s.type)} · <button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">${esc(clientName(s.clientId))}</button>${v ? ` · ${esc(v.nom)}` : ""}${s.recurrenceJours ? ` · tous les ${s.recurrenceJours} jours` : ""}${s.resultat ? ` · ${esc(s.resultat)}` : ""}</span></span>
+    <span class="toolbar">${s.statut === "a_faire" ? `<button class="btn sm" data-action="fait" data-id="${esc(s.id)}"${dis()}>Fait</button>` : ""}<button class="btn sm" data-action="edit-suivi" data-id="${esc(s.id)}"${dis()}>Modifier</button></span></div>`;
+}
+function viewSuivis() {
+  const t = today(), sem = addDays(t, 7), all = [...S.suivis.values()];
+  const open = all.filter(s => s.statut === "a_faire").sort(fuSort);
+  const groups = [["En retard", open.filter(s => s.datePrevue && s.datePrevue < t)], ["Aujourd'hui", open.filter(s => s.datePrevue === t)],
+                  ["Cette semaine", open.filter(s => s.datePrevue > t && s.datePrevue <= sem)], ["Plus tard", open.filter(s => !s.datePrevue || s.datePrevue > sem)]];
+  const faits = all.filter(s => s.statut === "fait").sort((a, b) => (b.dateRealisee || "").localeCompare(a.dateRealisee || "")).slice(0, 15);
+  return `<section><div class="section-head"><h2>Suivis</h2><span class="spacer"></span><button class="btn primary" data-action="new-suivi"${dis()}>Ajouter un suivi</button></div>
+  <div class="panel">${!all.length ? `<div class="empty"><h3>Aucun suivi pour l'instant</h3><p>Planifie tes appels, courriels et relances. Un suivi répété tous les N jours se recrée tout seul quand tu le marques fait.</p><button class="btn primary" data-action="new-suivi"${dis()}>Planifier un suivi</button></div>`
+    : groups.filter(([, l]) => l.length).map(([g, l]) => `<div class="group-title">${g} · ${l.length}</div><div class="fu-list">${l.map(fuRow).join("")}</div>`).join("")
+      + (faits.length ? `<div class="group-title">Faits récemment</div><div class="fu-list">${faits.map(fuRow).join("")}</div>` : "")}</div></section>`;
+}
+
+/* ----- Sauvegarde */
+function viewSauvegarde() {
+  const last = lsGet("derniereSauvegarde");
+  return `<section style="display:grid;gap:16px"><h2>Sauvegarde</h2>
+    <div class="panel panel-pad" style="display:grid;gap:8px"><h3>Enregistrement automatique</h3>
+      <p class="muted" style="margin:0;max-width:66ch">Chaque client, vente, paiement et suivi est enregistré en ligne dès que tu cliques sur Enregistrer. Tu le retrouves sur n'importe quel appareil où tu ouvres cette page en étant connecté à claude.ai. Seul toi y as accès.</p>
+      <dl class="facts" style="margin-top:6px"><div><dt>Clients</dt><dd class="num">${S.clients.size}</dd></div><div><dt>Ventes</dt><dd class="num">${S.ventes.size}</dd></div><div><dt>Paiements</dt><dd class="num">${S.paiements.size}</dd></div><div><dt>Suivis</dt><dd class="num">${S.suivis.size}</dd></div></dl></div>
+    <div class="panel panel-pad" style="display:grid;gap:10px"><h3>Copie sur ton ordinateur</h3>
+      <p class="muted" style="margin:0;max-width:66ch">Télécharge une sauvegarde complète de temps en temps. Elle permet de tout restaurer ici même si quelque chose était supprimé par erreur.${last ? ` Dernière sauvegarde : ${esc(fmtDate(last.slice(0, 10)))}.` : ""}</p>
+      <div class="toolbar"><button class="btn primary" data-action="backup">Télécharger la sauvegarde (.json)</button>
+      <button class="btn" data-action="csv">Exporter pour Excel ou Notion (.csv)</button></div>
+      <p class="muted small" style="margin:0">Le fichier .csv reprend exactement les colonnes de ton gabarit « Suivi paiements (commissions) », avec les colonnes calculées remplies.</p></div>
+    <div class="panel panel-pad" style="display:grid;gap:10px"><h3>Restaurer une sauvegarde</h3>
+      <p class="muted" style="margin:0;max-width:66ch">Choisis un fichier .json téléchargé depuis cette page. Les fiches de la sauvegarde remplacent celles qui ont le même identifiant ; les autres sont conservées.</p>
+      <div class="toolbar"><input type="file" id="restore-file" accept=".json,application/json"${dis()}></div>
+      <div id="restore-zone"></div></div>
+  </section>`;
+}
+
+/* ---------- Fenêtres */
+const dlg = $("#dlg");
+function openDlg(html, onReady) { $("#dlg-in").innerHTML = html; if (!dlg.open) dlg.showModal(); onReady?.($("#dlg-in")); }
+function closeDlg() { if (dlg.open) dlg.close(); $("#dlg-in").innerHTML = ""; }
+dlg.addEventListener("click", e => { if (e.target === dlg) closeDlg(); });
+const head = title => `<div class="dlg-head"><h2>${esc(title)}</h2><button type="button" class="x" data-action="close" aria-label="Fermer">×</button></div>`;
+const opts = (list, val) => list.map(o => `<option value="${esc(o)}"${o === val ? " selected" : ""}>${esc(o)}</option>`).join("");
+const dl = (id, list) => `<datalist id="${id}">${list.map(o => `<option value="${esc(o)}">`).join("")}</datalist>`;
+const field = (label, input, cls = "", hint = "") => `<label class="field ${cls}"><span>${label}</span>${input}${hint ? `<span class="hint">${hint}</span>` : ""}</label>`;
+
+/* ----- Client */
+function formClient(cl) {
+  const c = cl || { statut: "prospect" };
+  openDlg(`<form class="dlg" id="form-client" novalidate>${head(cl ? "Modifier le client" : "Nouveau client")}
+    <div class="dlg-body"><div class="grid">
+      ${field("Nom", `<input id="cl-nom" name="nom" required value="${esc(c.nom || "")}" autocomplete="off">`, "full")}
+      ${field("Entreprise", `<input id="cl-ent" name="entreprise" value="${esc(c.entreprise || "")}">`)}
+      ${field("Statut", `<select id="cl-statut" name="statut">${[["prospect", "Prospect"], ["actif", "Actif"], ["inactif", "Inactif"], ["perdu", "Perdu"]].map(([k, l]) => `<option value="${k}"${k === c.statut ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${field("Courriel", `<input id="cl-mail" name="courriel" type="email" value="${esc(c.courriel || "")}">`)}
+      ${field("Téléphone", `<input id="cl-tel" name="telephone" type="tel" value="${esc(c.telephone || "")}">`)}
+      ${field("Source", `<input id="cl-src" name="source" list="dl-src" value="${esc(c.source || "")}" placeholder="Référence, site web…">`)}
+      ${field("Notes", `<textarea id="cl-notes" name="notes">${esc(c.notes || "")}</textarea>`, "full")}
+    </div>${dl("dl-src", ["Référence", "Site web", "Réseaux sociaux", "Événement", "Appel à froid"])}<p class="err-msg" id="cl-err" hidden></p></div>
+    <div class="dlg-foot">${cl ? `<button type="button" class="btn danger" data-action="del-client" data-id="${esc(cl.id)}">Supprimer</button>` : ""}<span class="spacer"></span>
+      <button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></form>`,
+    el => { $("#cl-nom", el).focus(); $("#form-client", el).addEventListener("submit", e => { e.preventDefault(); saveClient(e.target, cl); }); });
+}
+async function saveClient(form, cl) {
+  const f = Object.fromEntries(new FormData(form)), nom = (f.nom || "").trim();
+  if (!nom) return showErr("#cl-err", "Indique le nom du client.");
+  const dup = [...S.clients.values()].find(x => x.nom.toLowerCase() === nom.toLowerCase() && x.id !== cl?.id);
+  if (dup) return showErr("#cl-err", "Un client porte déjà ce nom.");
+  const body = { ...(cl || {}), nom, entreprise: f.entreprise.trim(), statut: f.statut, courriel: f.courriel.trim(), telephone: f.telephone.trim(),
+                 source: f.source.trim(), notes: f.notes.trim(), creeLe: cl?.creeLe || today() };
+  delete body.id;
+  await write(async () => { const ref = cl ? S.db.collection("clients").doc(cl.id) : S.db.collection("clients").doc(); await ref.set(body); }, cl ? "Client mis à jour" : "Client ajouté");
+}
+async function ensureClient(nom) {
+  const ex = [...S.clients.values()].find(x => x.nom.toLowerCase() === nom.toLowerCase());
+  if (ex) return ex.id;
+  const ref = S.db.collection("clients").doc();
+  await ref.set({ nom, statut: "actif", entreprise: "", courriel: "", telephone: "", source: "", notes: "", creeLe: today() });
+  S.clients.set(ref.id, { id: ref.id, nom });
+  return ref.id;
+}
+function ficheClient(id) {
+  const cl = S.clients.get(id); if (!cl) return;
+  const ventes = ventesCalc().filter(x => x.v.clientId === id).sort((a, b) => (b.v.dateVente || "").localeCompare(a.v.dateVente || ""));
+  const fus = [...S.suivis.values()].filter(s => s.clientId === id).sort(fuSort);
+  openDlg(`<div class="dlg">${head(cl.nom)}<div class="dlg-body">
+    <dl class="facts"><div><dt>Entreprise</dt><dd>${esc(cl.entreprise || "—")}</dd></div><div><dt>Statut</dt><dd>${esc({ prospect: "Prospect", actif: "Actif", inactif: "Inactif", perdu: "Perdu" }[cl.statut] || "—")}</dd></div>
+      <div><dt>Courriel</dt><dd>${esc(cl.courriel || "—")}</dd></div><div><dt>Téléphone</dt><dd>${esc(cl.telephone || "—")}</dd></div>
+      <div><dt>Source</dt><dd>${esc(cl.source || "—")}</dd></div><div><dt>Client depuis</dt><dd>${esc(fmtDate(cl.creeLe) || "—")}</dd></div></dl>
+    ${cl.notes ? `<p style="margin:0;white-space:pre-wrap">${esc(cl.notes)}</p>` : ""}
+    <div><div class="section-head"><h3>Ventes</h3><span class="spacer"></span><button class="btn sm" data-action="new-vente" data-client="${esc(id)}"${dis()}>Nouvelle vente</button></div>
+    <div class="panel">${ventes.length ? `<div class="tscroll"><table><thead><tr><th>Transaction</th><th class="r">REV</th><th class="r">Payé</th><th class="r">Solde</th><th class="r">Commission</th><th>État</th></tr></thead><tbody>
+      ${ventes.map(({ v, c }) => `<tr class="click${v.annulee ? " cancel" : ""}" data-action="open-vente" data-id="${esc(v.id)}"><td>${esc(v.nom)}<span class="sub">${esc(v.statut || "")}</span></td><td class="r num">${esc(money(c.rev, v.devise))}</td><td class="r num">${esc(money(c.paye, v.devise))}</td><td class="r num">${esc(money(c.diff, v.devise))}</td><td class="r num">${esc(money(c.commission, v.devise))}</td><td>${chip(c.etat)}</td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="empty"><p>Aucune vente pour ce client.</p></div>`}</div></div>
+    <div><div class="section-head"><h3>Suivis</h3><span class="spacer"></span><button class="btn sm" data-action="new-suivi" data-client="${esc(id)}"${dis()}>Ajouter un suivi</button></div>
+    <div class="panel">${fus.length ? `<div class="fu-list">${fus.map(fuRow).join("")}</div>` : `<div class="empty"><p>Aucun suivi.</p></div>`}</div></div>
+  </div><div class="dlg-foot"><span class="spacer"></span><button class="btn" data-action="edit-client" data-id="${esc(id)}"${dis()}>Modifier la fiche</button></div></div>`);
+}
+
+/* ----- Vente */
+function formVente(v, clientId) {
+  const x = v || { devise: "CAD", tauxCommission: TAUX_DEFAUT / 100, dateVente: today(), statut: "Signé", plan: { mode: "mensualite", premierVersement: addMonths(today(), 1).slice(0, 8) + "01" } };
+  const p = x.plan || { mode: "unique" };
+  const cname = v ? clientName(v.clientId) : clientId ? clientName(clientId) : "";
+  const fu = v ? [...S.suivis.values()].filter(s => s.venteId === v.id && s.statut === "a_faire" && s.type === "follow_up").sort(fuSort)[0] : null;
+  const modes = [["unique", "Un seul paiement"], ["mensualite", "Mensualité fixe"], ["versements", "Nombre de versements"], ["recurrent", "Récurrent sans fin"]];
+  openDlg(`<form class="dlg" id="form-vente" novalidate>${head(v ? "Modifier la vente" : "Nouvelle vente")}
+    <div class="dlg-body"><div class="grid">
+      ${field("Client", `<input id="v-client" name="client" list="dl-clients" required value="${esc(cname)}" autocomplete="off" placeholder="Nom du client">`, "", "Un nouveau nom crée le client automatiquement.")}
+      ${field("Transaction", `<input id="v-nom" name="nom" value="${esc(x.nom || "")}" placeholder="Ex. Mandat site web">`)}
+      ${field("Type", `<input id="v-type" name="type" list="dl-types" value="${esc(x.type || "")}">`)}
+      ${field("Statut (étape de la vente)", `<input id="v-statut" name="statut" list="dl-etapes" value="${esc(x.statut || "")}">`)}
+      ${field("Date du premier contact", `<input id="v-contact" name="premierContact" type="date" value="${esc(x.premierContact || "")}">`)}
+      ${field("Date de la vente", `<input id="v-date" name="dateVente" type="date" value="${esc(x.dateVente || "")}">`)}
+    </div>
+    <fieldset><legend>Montant et commission</legend><div class="grid">
+      ${field("REV", `<input id="v-rev" name="rev" inputmode="decimal" value="${x.rev ?? ""}" placeholder="0,00">`, "", "Montant total de la vente.")}
+      ${field("Devise", `<select id="v-devise" name="devise">${opts(["CAD", "USD", "EUR"], x.devise || "CAD")}</select>`)}
+      ${field("Taux de commission (%)", `<input id="v-taux" name="taux" inputmode="decimal" value="${esc(String(r2((x.tauxCommission ?? .05) * 100)).replace(".", ","))}">`, "", "5 % par défaut, modifiable pour cette vente.")}
+      ${field("Méthode de paiement", `<input id="v-methode" name="methode" list="dl-methodes" value="${esc(x.methode || "")}">`)}
+    </div></fieldset>
+    <fieldset><legend>Plan de paiement</legend>
+      <div class="radios" role="radiogroup">${modes.map(([k, l]) => `<label><input type="radio" name="mode" value="${k}"${p.mode === k ? " checked" : ""}> ${l}</label>`).join("")}</div>
+      <div class="grid">
+        ${field("Mensualité", `<input id="v-mens" name="mensualite" inputmode="decimal" value="${p.mensualite ?? ""}" placeholder="0,00">`, "pl-mens")}
+        ${field("Nombre de versements", `<input id="v-nb" name="nb" type="number" min="1" step="1" value="${p.nb ?? ""}">`, "pl-nb")}
+        ${field("Premier versement", `<input id="v-premier" name="premierVersement" type="date" value="${esc(p.premierVersement || "")}">`, "pl-date", "Les versements suivants tombent le même jour chaque mois.")}
+        ${field("Fin (optionnel)", `<input id="v-fin" name="fin" type="date" value="${esc(p.fin || "")}">`, "pl-fin")}
+      </div>
+      <div class="preview" id="v-preview" aria-live="polite"></div>
+    </fieldset>
+    <div class="grid">
+      ${field("Date de follow-up", `<input id="v-fu" name="followUp" type="date" value="${esc(fu?.datePrevue || "")}">`, "", "Crée un rappel dans tes suivis.")}
+      ${field("Notes", `<textarea id="v-notes" name="notes">${esc(x.notes || "")}</textarea>`, "full")}
+      ${v ? `<label class="check full"><input type="checkbox" id="v-annulee" name="annulee"${x.annulee ? " checked" : ""}> Vente annulée (gardée dans l'historique, retirée des totaux)</label>` : ""}
+    </div>
+    ${dl("dl-clients", [...S.clients.values()].sort(byName).map(c => c.nom))}${dl("dl-types", TYPES_VENTE)}${dl("dl-etapes", ETAPES)}${dl("dl-methodes", METHODES)}
+    <p class="err-msg" id="v-err" hidden></p></div>
+    <div class="dlg-foot">${v ? `<button type="button" class="btn danger" data-action="del-vente" data-id="${esc(v.id)}">Supprimer</button>` : ""}<span class="spacer"></span>
+      <button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></form>`,
+    el => {
+      const form = $("#form-vente", el);
+      const upd = () => planPreview(form);
+      form.addEventListener("input", upd); form.addEventListener("change", upd); upd();
+      (v ? $("#v-rev", el) : $("#v-client", el)).focus();
+      form.addEventListener("submit", e => { e.preventDefault(); saveVente(form, v, fu); });
+    });
+}
+function readVenteForm(form) {
+  const f = Object.fromEntries(new FormData(form));
+  const mode = f.mode || "unique";
+  const tauxPct = num(f.taux);
+  return { f, mode, rev: num(f.rev), taux: isNaN(tauxPct) ? TAUX_DEFAUT / 100 : tauxPct / 100,
+           plan: { mode, nb: mode === "versements" ? Math.floor(num(f.nb)) : null, mensualite: (mode === "mensualite" || mode === "recurrent") ? num(f.mensualite) : null,
+                   premierVersement: f.premierVersement || f.dateVente || today(), fin: mode === "recurrent" ? (f.fin || null) : null } };
+}
+function venteErreur(r) {
+  if (r.mode !== "recurrent" && !(r.rev > 0)) return "Indique le REV (montant total de la vente).";
+  if ((r.mode === "mensualite" || r.mode === "recurrent") && !(r.plan.mensualite > 0)) return "Indique le montant de la mensualité.";
+  if (r.mode === "versements" && !(r.plan.nb >= 1)) return "Indique le nombre de versements.";
+  if (r.mode === "versements" && r.plan.nb > 600) return "600 versements au maximum.";
+  if (r.mode === "mensualite" && r.rev / r.plan.mensualite > 600) return "La mensualité est trop petite pour ce REV.";
+  if (!(r.taux >= 0 && r.taux <= 1)) return "Le taux de commission doit être entre 0 et 100 %.";
+  return "";
+}
+function planPreview(form) {
+  const r = readVenteForm(form), m = r.mode;
+  form.querySelector(".pl-mens").hidden = !(m === "mensualite" || m === "recurrent");
+  form.querySelector(".pl-nb").hidden = m !== "versements";
+  form.querySelector(".pl-fin").hidden = m !== "recurrent";
+  form.querySelector(".pl-date span").textContent = m === "unique" ? "Date du paiement" : "Premier versement";
+  $("#v-rev").closest(".field").querySelector(".hint").textContent = m === "recurrent" ? "Laisse vide : le REV s'additionne à chaque mois facturé." : "Montant total de la vente.";
+  const box = $("#v-preview"), err = venteErreur(r), dev = form.devise.value;
+  box.classList.toggle("err", !!err && (form.rev.value !== "" || form.mensualite.value !== ""));
+  if (err) { box.textContent = (form.rev.value || form.mensualite.value) ? err : "Le plan s'affichera ici."; return; }
+  const v = { rev: r.rev || 0, plan: r.plan, dateVente: form.dateVente.value };
+  const e = planEntries(v);
+  if (m === "recurrent") { box.innerHTML = `${esc(money(r.plan.mensualite, dev))} par mois à partir du ${esc(fmtDate(r.plan.premierVersement))}${r.plan.fin ? ` jusqu'au ${esc(fmtDate(r.plan.fin))}` : ", sans date de fin"}. Commission : <strong>${esc(money(r.plan.mensualite * r.taux, dev))}</strong> par mois (${esc(pct(r.taux))}).`; return; }
+  const last = e[e.length - 1], first = e[0];
+  const desc = e.length === 1 ? `Un paiement de ${money(first.montant, dev)} le ${fmtDate(first.date)}`
+    : `${e.length} versements de ${money(first.montant, dev)}${last.montant !== first.montant ? ` (dernier : ${money(last.montant, dev)})` : ""}, du ${fmtDate(first.date)} au ${fmtDate(last.date)}`;
+  box.innerHTML = `${esc(desc)}. Commission : <strong>${esc(money(r.rev * r.taux, dev))}</strong> (${esc(pct(r.taux))} de ${esc(money(r.rev, dev))}).`;
+}
+async function saveVente(form, v, fu) {
+  const r = readVenteForm(form), f = r.f, err = venteErreur(r);
+  const cname = (f.client || "").trim();
+  if (!cname) return showErr("#v-err", "Indique le client.");
+  if (err) return showErr("#v-err", err);
+  await write(async () => {
+    const clientId = await ensureClient(cname);
+    const body = { nom: (f.nom || "").trim() || `${cname} ${f.dateVente || today()}`, clientId, type: (f.type || "").trim(), statut: (f.statut || "").trim(),
+                   premierContact: f.premierContact || "", dateVente: f.dateVente || today(), rev: r.mode === "recurrent" ? 0 : r2(r.rev), devise: f.devise || "CAD",
+                   methode: (f.methode || "").trim(), tauxCommission: r.taux, plan: r.plan, annulee: !!f.annulee, notes: (f.notes || "").trim(), creeLe: v?.creeLe || today() };
+    const ref = v ? S.db.collection("ventes").doc(v.id) : S.db.collection("ventes").doc();
+    await ref.set(body);
+    if (f.followUp && !fu) await S.db.collection("suivis").doc().set({ clientId, venteId: ref.id, type: "follow_up", sujet: `Follow-up : ${body.nom}`, datePrevue: f.followUp, statut: "a_faire", priorite: "normale", recurrenceJours: null, resultat: "", dateRealisee: "", creeLe: today() });
+    else if (fu && f.followUp !== fu.datePrevue) {
+      if (f.followUp) await S.db.collection("suivis").doc(fu.id).update({ datePrevue: f.followUp, clientId });
+      else await S.db.collection("suivis").doc(fu.id).update({ statut: "annule" });
+    }
+    if (body.annulee && !v?.annulee) for (const s of S.suivis.values()) if (s.venteId === ref.id && s.statut === "a_faire") await S.db.collection("suivis").doc(s.id).update({ statut: "annule" });
+  }, v ? "Vente mise à jour" : "Vente ajoutée");
+}
+function ficheVente(id) {
+  const v = S.ventes.get(id); if (!v) return;
+  const c = calc(v), d = v.devise;
+  openDlg(`<div class="dlg">${head(v.nom)}<div class="dlg-body">
+    <dl class="facts">
+      <div><dt>Client</dt><dd><button class="btn link" data-action="open-client" data-id="${esc(v.clientId)}">${esc(clientName(v.clientId))}</button></dd></div>
+      <div><dt>Statut</dt><dd>${esc(v.statut || "—")}</dd></div><div><dt>État</dt><dd>${chip(c.etat)}</dd></div>
+      <div><dt>Type</dt><dd>${esc(v.type || "—")}</dd></div>
+      <div><dt>REV</dt><dd class="num">${esc(money(c.rev, d))}</dd></div><div><dt>Payé</dt><dd class="num">${esc(money(c.paye, d))}</dd></div>
+      <div><dt>Différence</dt><dd class="num">${esc(money(c.diff, d))}</dd></div><div><dt>Dû ce mois</dt><dd class="num">${esc(money(c.du, d))}</dd></div>
+      <div><dt>Commission (${esc(pct(c.taux))})</dt><dd class="num">${esc(money(c.commission, d))}</dd></div><div><dt>Commission collectée</dt><dd class="num">${esc(money(c.collectee, d))}</dd></div>
+      <div><dt>Premier contact</dt><dd>${esc(fmtDate(v.premierContact) || "—")}</dd></div><div><dt>Méthode</dt><dd>${esc(v.methode || "—")}</dd></div>
+    </dl>
+    ${v.notes ? `<p style="margin:0;white-space:pre-wrap">${esc(v.notes)}</p>` : ""}
+    <div><h3 style="margin-bottom:8px">Plan de paiement · ${esc(planLabel(v, c))}</h3><div class="panel">${c.plan.length ? `<div class="tscroll"><table>
+      <thead><tr><th>Versement</th><th>Date</th><th class="r">Montant</th><th class="r">Payé</th><th class="r">Reste</th><th>État</th></tr></thead><tbody>
+      ${c.plan.map(e => `<tr><td class="num">${e.nb ? `${e.no}/${e.nb}` : `n° ${e.no}`}</td><td class="num">${esc(fmtDate(e.date))}</td><td class="r num">${esc(money(e.montant, d))}</td><td class="r num">${esc(money(e.paye, d))}</td><td class="r num">${esc(money(e.reste, d))}</td><td>${chip(e.etat)}</td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="empty"><p>Aucun versement prévu pour l'instant.</p></div>`}</div></div>
+    <div><div class="section-head"><h3>Paiements reçus</h3><span class="spacer"></span><button class="btn sm primary" data-action="new-paiement" data-id="${esc(id)}"${v.annulee || !canWrite() ? " disabled" : ""}>Ajouter un paiement</button></div>
+    <div class="panel">${c.pays.length ? `<div class="tscroll"><table><thead><tr><th>Date</th><th class="r">Montant</th><th>Méthode</th><th>Référence</th><th></th></tr></thead><tbody>
+      ${c.pays.map(p => `<tr><td class="num">${esc(fmtDate(p.date))}</td><td class="r num">${esc(money(p.montant, d))}</td><td>${esc(p.methode || "")}</td><td>${esc(p.reference || "")}</td><td class="r"><button class="btn sm danger" data-action="del-paiement" data-id="${esc(p.id)}"${dis()}>Retirer</button></td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="empty"><p>Aucun paiement reçu.</p></div>`}</div></div>
+  </div><div class="dlg-foot"><span class="spacer"></span><button class="btn" data-action="edit-vente" data-id="${esc(id)}"${dis()}>Modifier la vente</button></div></div>`);
+}
+
+/* ----- Paiement */
+function formPaiement(venteId, montant) {
+  const v = S.ventes.get(venteId); if (!v) return;
+  const c = calc(v), defaut = montant ?? c.prochain?.reste ?? c.diff;
+  openDlg(`<form class="dlg" id="form-pay" novalidate>${head("Paiement reçu")}
+    <div class="dlg-body"><p style="margin:0"><strong>${esc(v.nom)}</strong> · ${esc(clientName(v.clientId))}<br><span class="muted small">Reste à payer : ${esc(money(c.diff, v.devise))}${c.prochain ? ` · prochain versement ${esc(money(c.prochain.reste, v.devise))} le ${esc(fmtDate(c.prochain.date))}` : ""}</span></p>
+    <div class="grid">
+      ${field(`Montant (${esc(v.devise || "CAD")})`, `<input id="p-montant" name="montant" inputmode="decimal" value="${defaut > 0 ? String(r2(defaut)).replace(".", ",") : ""}">`)}
+      ${field("Date", `<input id="p-date" name="date" type="date" value="${today()}">`)}
+      ${field("Méthode", `<input id="p-methode" name="methode" list="dl-methodes" value="${esc(v.methode || "")}">`)}
+      ${field("Référence", `<input id="p-ref" name="reference" placeholder="N° de chèque, de virement…">`)}
+    </div>${dl("dl-methodes", METHODES)}<p class="err-msg" id="p-err" hidden></p>
+    <p class="muted small" style="margin:0">Le paiement couvre d'abord le plus vieux versement non payé. Commission sur ce paiement : <span id="p-comm" class="num"></span></p></div>
+    <div class="dlg-foot"><span class="spacer"></span><button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Enregistrer le paiement</button></div></form>`,
+    el => {
+      const form = $("#form-pay", el), upd = () => { const m = num(form.montant.value); $("#p-comm").textContent = money((m > 0 ? m : 0) * c.taux, v.devise); };
+      form.addEventListener("input", upd); upd(); form.montant.focus(); form.montant.select();
+      form.addEventListener("submit", async e => {
+        e.preventDefault();
+        const m = r2(num(form.montant.value));
+        if (!(m > 0)) return showErr("#p-err", "Indique un montant supérieur à 0.");
+        if (!form.date.value) return showErr("#p-err", "Indique la date du paiement.");
+        await write(() => S.db.collection("paiements").doc().set({ venteId, date: form.date.value, montant: m, methode: form.methode.value.trim(), reference: form.reference.value.trim(), creeLe: today() }),
+          m > c.diff + 0.005 && !c.recurrent ? "Paiement enregistré (supérieur au solde)" : "Paiement enregistré");
+      });
+    });
+}
+
+/* ----- Suivi */
+function formSuivi(s, preset = {}) {
+  const x = s || { type: "follow_up", priorite: "normale", datePrevue: addDays(today(), 1), clientId: preset.clientId || "", venteId: preset.venteId || "" };
+  const clients = [...S.clients.values()].sort(byName);
+  if (!clients.length) { toast("Ajoute d'abord un client.", true); return; }
+  const ventesOpts = cid => `<option value="">Aucune</option>` + [...S.ventes.values()].filter(v => v.clientId === cid).map(v => `<option value="${esc(v.id)}"${v.id === x.venteId ? " selected" : ""}>${esc(v.nom)}</option>`).join("");
+  openDlg(`<form class="dlg" id="form-suivi" novalidate>${head(s ? "Modifier le suivi" : "Nouveau suivi")}
+    <div class="dlg-body"><div class="grid">
+      ${field("Client", `<select id="s-client" name="clientId">${clients.map(c => `<option value="${esc(c.id)}"${c.id === x.clientId ? " selected" : ""}>${esc(c.nom)}</option>`).join("")}</select>`)}
+      ${field("Vente liée", `<select id="s-vente" name="venteId">${ventesOpts(x.clientId || clients[0].id)}</select>`)}
+      ${field("Sujet", `<input id="s-sujet" name="sujet" value="${esc(x.sujet || "")}" placeholder="Ex. Rappeler pour la soumission">`, "full")}
+      ${field("Type", `<select id="s-type" name="type">${Object.entries(TYPES_SUIVI).map(([k, l]) => `<option value="${k}"${k === x.type ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${field("Date prévue", `<input id="s-date" name="datePrevue" type="date" value="${esc(x.datePrevue || "")}">`)}
+      ${field("Priorité", `<select id="s-prio" name="priorite">${[["basse", "Basse"], ["normale", "Normale"], ["haute", "Haute"]].map(([k, l]) => `<option value="${k}"${k === x.priorite ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${field("Répéter tous les … jours", `<input id="s-rec" name="recurrenceJours" type="number" min="1" step="1" value="${x.recurrenceJours || ""}" placeholder="Non">`, "", "Le suivi se recrée quand tu le marques fait.")}
+      ${s ? field("Résultat", `<textarea id="s-res" name="resultat">${esc(x.resultat || "")}</textarea>`, "full") : ""}
+    </div><p class="err-msg" id="s-err" hidden></p></div>
+    <div class="dlg-foot">${s ? `<button type="button" class="btn danger" data-action="del-suivi" data-id="${esc(s.id)}">Supprimer</button>` : ""}<span class="spacer"></span>
+      <button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></form>`,
+    el => {
+      const form = $("#form-suivi", el);
+      form.clientId.addEventListener("change", () => { form.venteId.innerHTML = ventesOpts(form.clientId.value); });
+      form.sujet.focus();
+      form.addEventListener("submit", async e => {
+        e.preventDefault();
+        const f = Object.fromEntries(new FormData(form));
+        if (!f.sujet.trim()) return showErr("#s-err", "Indique le sujet du suivi.");
+        const rec = Math.floor(num(f.recurrenceJours));
+        const body = { ...(s || {}), clientId: f.clientId, venteId: f.venteId || "", type: f.type, sujet: f.sujet.trim(), datePrevue: f.datePrevue || "", priorite: f.priorite,
+                       recurrenceJours: rec > 0 ? rec : null, resultat: (f.resultat ?? s?.resultat ?? "").trim(), statut: s?.statut || "a_faire", dateRealisee: s?.dateRealisee || "", creeLe: s?.creeLe || today() };
+        delete body.id;
+        await write(() => (s ? S.db.collection("suivis").doc(s.id) : S.db.collection("suivis").doc()).set(body), s ? "Suivi mis à jour" : "Suivi ajouté");
+      });
+    });
+}
+async function marquerFait(id) {
+  const s = S.suivis.get(id); if (!s) return;
+  await write(async () => {
+    await S.db.collection("suivis").doc(id).update({ statut: "fait", dateRealisee: today() });
+    if (s.recurrenceJours) {
+      const next = { ...s, datePrevue: addDays(today(), s.recurrenceJours), statut: "a_faire", dateRealisee: "", resultat: "", creeLe: today() };
+      delete next.id;
+      await S.db.collection("suivis").doc().set(next);
+    }
+  }, s.recurrenceJours ? `Fait. Prochain le ${fmtDate(addDays(today(), s.recurrenceJours))}` : "Suivi marqué fait", false);
+}
+async function creerRelances() {
+  const list = ventesCalc().filter(({ v, c }) => c.retard > 0.005 && ![...S.suivis.values()].some(s => s.venteId === v.id && s.type === "relance_paiement" && s.statut === "a_faire"));
+  await write(async () => {
+    for (const { v, c } of list) await S.db.collection("suivis").doc().set({ clientId: v.clientId, venteId: v.id, type: "relance_paiement", sujet: `Relancer : ${money(c.retard, v.devise)} en retard sur « ${v.nom} »`, datePrevue: today(), statut: "a_faire", priorite: "haute", recurrenceJours: null, resultat: "", dateRealisee: "", creeLe: today() });
+  }, `${list.length} relance${list.length > 1 ? "s" : ""} ajoutée${list.length > 1 ? "s" : ""} aux suivis`, false);
+}
+
+/* ---------- Suppressions : deuxième clic pour confirmer */
+function armed(btn) {
+  if (btn.classList.contains("armed")) return true;
+  btn.classList.add("armed"); const t = btn.textContent; btn.textContent = "Confirmer la suppression";
+  setTimeout(() => { if (btn.isConnected) { btn.classList.remove("armed"); btn.textContent = t; } }, 4000);
+  return false;
+}
+async function supprimer(kind, id, btn) {
+  if (!armed(btn)) return;
+  if (kind === "client") {
+    if ([...S.ventes.values()].some(v => v.clientId === id)) return showErr("#cl-err", "Ce client a des ventes. Supprime ou réassigne ses ventes d'abord, ou passe-le en « Inactif ».");
+    await write(async () => { for (const s of S.suivis.values()) if (s.clientId === id) await S.db.collection("suivis").doc(s.id).delete(); await S.db.collection("clients").doc(id).delete(); }, "Client supprimé");
+  } else if (kind === "vente") {
+    await write(async () => {
+      for (const p of S.paiements.values()) if (p.venteId === id) await S.db.collection("paiements").doc(p.id).delete();
+      for (const s of S.suivis.values()) if (s.venteId === id) await S.db.collection("suivis").doc(s.id).delete();
+      await S.db.collection("ventes").doc(id).delete();
+    }, "Vente supprimée avec ses paiements");
+  } else if (kind === "paiement") {
+    const vid = S.paiements.get(id)?.venteId;
+    await write(() => S.db.collection("paiements").doc(id).delete(), "Paiement retiré", false);
+    if (vid) setTimeout(() => ficheVente(vid), 150);
+  } else if (kind === "suivi") {
+    await write(() => S.db.collection("suivis").doc(id).delete(), "Suivi supprimé");
+  }
+}
+
+/* ---------- Sauvegarde et export */
+function snapshotData() {
+  const o = { application: "Suivi des commissions", version: 1, exporteLe: new Date().toISOString() };
+  for (const c of COLS) o[c] = [...S[c].values()];
+  return o;
+}
+async function telecharger(filename, data, label) {
+  let dls = null;
+  try { dls = await window.claude?.use?.("downloads"); } catch (_) {}
+  if (!dls) return toast("Le téléchargement n'est pas disponible dans cette vue.", true);
+  try { await dls.save({ filename, data }); toast(label); return true; }
+  catch (e) { if (e?.code !== "declined") toast(e?.code === "rate_limited" ? "Un téléchargement est déjà en attente." : "Le téléchargement a échoué.", true); return false; }
+}
+async function backup() {
+  const ok = await telecharger(`suivi-commissions-${today()}.json`, JSON.stringify(snapshotData(), null, 2), "Sauvegarde téléchargée");
+  if (ok) { lsSet("derniereSauvegarde", new Date().toISOString()); render(); }
+}
+function csvExport() {
+  const H = ["Transaction", "Date de follow up", "Date du premier contact", "Type", "Client", "Statut", "REV", "MONTANT PAYER", "Différence REV - payé", "MONTANT DE LA COMMISSIONS",
+             "DU THIS MONTH", "Commission 5% REV", "Commission 5% REV collecté", "Notes", "Devise", "Méthode", "État", "Taux commission"];
+  const q = x => { const s = String(x ?? ""); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const rows = ventesCalc().sort((a, b) => (a.v.dateVente || "").localeCompare(b.v.dateVente || "")).map(({ v, c }) =>
+    [v.nom, c.followUp, v.premierContact, v.type, clientName(v.clientId), v.statut, c.rev.toFixed(2), c.paye.toFixed(2), c.diff.toFixed(2), c.commission.toFixed(2),
+     c.du.toFixed(2), c.commission.toFixed(2), c.collectee.toFixed(2), v.notes, v.devise, v.methode, c.etat, `${r2(c.taux * 100)}%`].map(q).join(","));
+  telecharger(`suivi-paiements-commissions-${today()}.csv`, "﻿" + [H.map(q).join(","), ...rows].join("\r\n"), "Export .csv téléchargé");
+}
+let restoreData = null;
+function lireRestauration(file) {
+  const zone = $("#restore-zone"); restoreData = null;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const o = JSON.parse(rd.result);
+      if (!COLS.every(c => Array.isArray(o[c]))) throw new Error();
+      for (const c of COLS) for (const d of o[c]) if (!d || typeof d.id !== "string" || !/^[A-Za-z0-9_.~:@+-]{1,200}$/.test(d.id) || d.id === "." || d.id === "..") throw new Error();
+      restoreData = o;
+      zone.innerHTML = `<div class="preview">Sauvegarde du ${esc(fmtDate((o.exporteLe || "").slice(0, 10)) || "?")} : ${o.clients.length} clients, ${o.ventes.length} ventes, ${o.paiements.length} paiements, ${o.suivis.length} suivis.</div>
+        <div class="toolbar" style="margin-top:8px"><button class="btn primary" data-action="restore-go">Restaurer ces données</button></div>`;
+    } catch (_) { zone.innerHTML = `<p class="err-msg">Ce fichier n'est pas une sauvegarde de cette page. Choisis un fichier .json téléchargé depuis l'onglet Sauvegarde.</p>`; }
+  };
+  rd.readAsText(file);
+}
+async function restaurer(btn) {
+  if (!restoreData) return;
+  btn.disabled = true; let n = 0; const total = COLS.reduce((s, c) => s + restoreData[c].length, 0);
+  try {
+    for (const c of COLS) for (const d of restoreData[c]) {
+      const body = { ...d }; delete body.id;
+      await S.db.collection(c).doc(d.id).set(body); n++;
+      if (n % 10 === 0) btn.textContent = `Restauration… ${n}/${total}`;
+    }
+    toast(`${n} fiches restaurées`); restoreData = null; render();
+  } catch (e) { toast(`Restauration interrompue après ${n} fiches : ${dbMsg(e)}`, true); btn.disabled = false; btn.textContent = "Reprendre la restauration"; }
+}
+
+/* ---------- Écritures et messages */
+function dbMsg(e) {
+  return ({ quota_exceeded: "la base est pleine", resource_exhausted: "trop de modifications d'un coup, réessaie dans un instant",
+            invalid_argument: "tu n'as pas le droit de modifier ces données", revoked: "l'accès a été retiré, recharge la page" }[e?.code]) || "connexion perdue, réessaie";
+}
+async function write(fn, okMsg, close = true) {
+  if (!canWrite()) return toast("L'enregistrement n'est pas disponible pour l'instant.", true);
+  const btn = dlg.open ? dlg.querySelector("button[type=submit]") : null;
+  if (btn) btn.disabled = true;
+  try {
+    try { await fn(); } catch (e) { if (e?.code === "unavailable") { await new Promise(r => setTimeout(r, 400 + Math.random() * 600)); await fn(); } else throw e; }
+    if (close) closeDlg();
+    toast(okMsg);
+  } catch (e) { toast(`Pas enregistré : ${dbMsg(e)}.`, true); }
+  finally { if (btn?.isConnected) btn.disabled = false; }
+}
+function showErr(sel, msg) { const el = $(sel); if (el) { el.textContent = msg; el.hidden = false; } else toast(msg, true); }
+let toastT;
+function toast(msg, bad = false) { const t = $("#toast"); t.textContent = msg; t.className = bad ? "bad" : ""; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, bad ? 6000 : 3000); }
+function lsGet(k) { try { return localStorage.getItem("suivi:" + k); } catch (_) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem("suivi:" + k, v); } catch (_) {} }
+
+/* ---------- Événements */
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-action]"); if (!el || el.disabled) return;
+  const a = el.dataset.action, id = el.dataset.id;
+  if (el.tagName === "BUTTON" && el.closest("tr.click")) e.stopPropagation();
+  switch (a) {
+    case "close": closeDlg(); break;
+    case "tab": S.tab = el.dataset.tab; lsSet("onglet", S.tab); closeDlg(); render(); window.scrollTo(0, 0); break;
+    case "new-client": formClient(null); break;
+    case "edit-client": formClient(S.clients.get(id)); break;
+    case "open-client": ficheClient(id); break;
+    case "new-vente": formVente(null, el.dataset.client); break;
+    case "edit-vente": formVente(S.ventes.get(id)); break;
+    case "open-vente": ficheVente(id); break;
+    case "new-paiement": formPaiement(id, el.dataset.montant ? Number(el.dataset.montant) : undefined); break;
+    case "new-suivi": formSuivi(null, { clientId: el.dataset.client }); break;
+    case "edit-suivi": formSuivi(S.suivis.get(id)); break;
+    case "fait": marquerFait(id); break;
+    case "relances": creerRelances(); break;
+    case "del-client": supprimer("client", id, el); break;
+    case "del-vente": supprimer("vente", id, el); break;
+    case "del-paiement": supprimer("paiement", id, el); break;
+    case "del-suivi": supprimer("suivi", id, el); break;
+    case "backup": backup(); break;
+    case "csv": csvExport(); break;
+    case "restore-go": restaurer(el); break;
+  }
+});
+$("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) { S.tab = b.dataset.tab; lsSet("onglet", S.tab); render(); } });
+document.addEventListener("input", e => { if (e.target.id === "f-q") { S.filtre.q = e.target.value; render(); } });
+document.addEventListener("change", e => {
+  if (e.target.id === "f-etat") { S.filtre.etat = e.target.value; render(); }
+  if (e.target.id === "restore-file" && e.target.files[0]) lireRestauration(e.target.files[0]);
+});
+
+/* ---------- Démarrage */
+const saved = lsGet("onglet"); if (saved && ["tableau", "ventes", "clients", "suivis", "sauvegarde"].includes(saved)) S.tab = saved;
+render();
+(async () => {
+  let db = null;
+  try { db = window.claude?.use ? await window.claude.use("db") : null; } catch (_) {}
+  if (!db) { S.dbState = "absent"; render(); return; }
+  S.db = db;
+  for (const c of COLS) {
+    db.collection(c).onSnapshot(snap => {
+      const m = new Map(); snap.docs.forEach(d => m.set(d.id, { id: d.id, ...d.data() }));
+      S[c] = m; S.loaded.add(c);
+      if (S.loaded.size === COLS.length) S.dbState = "ok";
+      scheduleRender();
+    }, err => { S.dbState = "erreur"; toast(`Connexion perdue : ${dbMsg(err)}.`, true); scheduleRender(); });
+  }
+})();
+</script>
