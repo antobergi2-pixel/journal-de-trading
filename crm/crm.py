@@ -13,7 +13,11 @@ Consulter
     python crm.py previsions          encaissements et commissions attendus mois par mois
     python crm.py plan TRANSACTION_ID détail du plan de paiement d'une vente
 
-Saisir
+Saisir (chaque modification met à jour donnees.sql, à committer pour la conserver)
+    python crm.py nouveau-client "Nom" [--courriel ...] [--telephone ...] [--statut prospect]
+    python crm.py fiche "Nom"                  tout sur un client
+    python crm.py statut TRANSACTION_ID "Signé"  change l'étape de la vente
+    python crm.py annuler TRANSACTION_ID
     python crm.py ajouter "Client" REV [--nom ...] [--type ...] [--devise CAD] [--echeance AAAA-MM-JJ]
                           [--follow-up AAAA-MM-JJ] [--versements N | --mensualite 500] [--recurrent mensuel] ...
     python crm.py echeancier TRANSACTION_ID --debut AAAA-MM-JJ (--versements N | --mensualite 500)
@@ -41,6 +45,10 @@ from pathlib import Path
 ICI = Path(__file__).resolve().parent
 SCHEMA = ICI / "schema.sql"
 DB_DEFAUT = ICI / "crm.db"
+# Copie texte des données, versionnée dans Git (crm.db, lui, ne l'est pas).
+# C'est la source de vérité : crm.db est reconstruit à partir d'elle au besoin.
+DONNEES = ICI / "donnees.sql"
+TABLES = ["clients", "recurrences", "transactions", "echeances", "paiements", "suivis"]  # ordre des clés étrangères
 TAUX_DEFAUT = 0.05   # commission par défaut : 5 %
 
 # Colonnes exactes du gabarit -> colonnes de v_transactions
@@ -66,7 +74,40 @@ GABARIT = [
 ]
 
 
+def fichier_donnees(chemin):
+    """Seule la base principale (crm.db) est synchronisée avec donnees.sql."""
+    return DONNEES if Path(chemin).resolve() == DB_DEFAUT.resolve() else None
+
+
+def sql_valeur(v):
+    if v is None:
+        return "NULL"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def sauvegarder(con, fichier):
+    lignes = ["-- Données du suivi des paiements et commissions.",
+              "-- Fichier généré par crm.py après chaque modification : ne pas éditer à la main.", ""]
+    for t in TABLES:
+        cur = con.execute(f"SELECT * FROM {t} ORDER BY id")
+        cols = [d[0] for d in cur.description]
+        for r in cur:
+            lignes.append(f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join(sql_valeur(v) for v in r)});")
+    Path(fichier).write_text("\n".join(lignes) + "\n", encoding="utf-8")
+
+
 def connecter(chemin):
+    sauvegarde = fichier_donnees(chemin)
+    db = Path(chemin)
+    if sauvegarde and sauvegarde.exists() and (not db.exists() or sauvegarde.stat().st_mtime > db.stat().st_mtime):
+        db.unlink(missing_ok=True)   # reconstruit la base à partir de donnees.sql
+        con = sqlite3.connect(db)
+        con.executescript(SCHEMA.read_text(encoding="utf-8"))
+        con.executescript(sauvegarde.read_text(encoding="utf-8"))
+        con.commit()
+        con.close()
     con = sqlite3.connect(chemin)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
@@ -380,6 +421,16 @@ def main():
     s.add_argument("--tous-les", type=int, help="répéter tous les N jours")
 
     s = sp.add_parser("fait"); s.add_argument("suivi_id", type=int); s.add_argument("--resultat")
+    s = sp.add_parser("nouveau-client", help="créer ou compléter la fiche d'un client")
+    s.add_argument("nom"); s.add_argument("--entreprise"); s.add_argument("--courriel"); s.add_argument("--telephone")
+    s.add_argument("--statut", choices=["prospect", "actif", "inactif", "perdu"]); s.add_argument("--source")
+    s.add_argument("--notes")
+    s = sp.add_parser("fiche", help="tout sur un client : coordonnées, ventes, suivis")
+    s.add_argument("client")
+    s = sp.add_parser("statut", help="changer l'étape de la vente (Statut)")
+    s.add_argument("transaction_id", type=int); s.add_argument("valeur")
+    s = sp.add_parser("annuler", help="annuler une vente (gardée dans l'historique, exclue des totaux)")
+    s.add_argument("transaction_id", type=int)
     s = sp.add_parser("taux", help="changer le taux de commission d'une vente")
     s.add_argument("transaction_id", type=int)
     s.add_argument("valeur", type=taux_arg, nargs="?", help="nouveau taux en %%, ex. 7 ou 3.5")
@@ -394,12 +445,42 @@ def main():
     s = sp.add_parser("export"); s.add_argument("fichier")
     a = p.parse_args()
 
-    con = connecter(a.db)
     c = a.cmd
+    sauvegarde = fichier_donnees(a.db)
+    if c == "demo" and sauvegarde:
+        sys.exit("La démo s'utilise sur une base d'essai : python crm.py --db essai.db demo")
+    con = connecter(a.db)
     if c == "init":
         print(f"Base prête : {a.db}")
     elif c == "demo":
         demo(con); print("Données d'exemple ajoutées.")
+    elif c == "nouveau-client":
+        cid = client_id(con, a.nom)
+        champs = {k: getattr(a, k) for k in ["entreprise", "courriel", "telephone", "statut", "source", "notes"]
+                  if getattr(a, k) is not None}
+        if champs:
+            con.execute(f"UPDATE clients SET {', '.join(k + '=?' for k in champs)} WHERE id=?", [*champs.values(), cid])
+        con.commit(); print(f"Client #{cid} : {a.nom}")
+    elif c == "fiche":
+        cid = client_id(con, a.client, creer=False)
+        afficher(con, "SELECT id, nom, entreprise, courriel, telephone, statut, source, date_creation, notes "
+                      "FROM clients WHERE id=?", (cid,))
+        print("\nVentes")
+        afficher(con, "SELECT id, transaction_, statut, devise, rev, mensualite, montant_paye, difference_rev_paye, "
+                      "du_ce_mois, taux_pct, montant_commission, commission_collectee, etat "
+                      "FROM v_transactions WHERE client_id=? ORDER BY date_transaction", (cid,))
+        print("\nSuivis")
+        afficher(con, "SELECT id, date_prevue, type, sujet, statut, date_realisee, resultat FROM suivis "
+                      "WHERE client_id=? ORDER BY statut <> 'a_faire', date_prevue", (cid,))
+    elif c == "statut":
+        if not con.execute("UPDATE transactions SET statut=? WHERE id=?", (a.valeur, a.transaction_id)).rowcount:
+            sys.exit("Transaction introuvable.")
+        con.commit(); print(f"Transaction #{a.transaction_id} : statut « {a.valeur} ».")
+    elif c == "annuler":
+        if not con.execute("UPDATE transactions SET annulee=1 WHERE id=?", (a.transaction_id,)).rowcount:
+            sys.exit("Transaction introuvable.")
+        con.execute("UPDATE suivis SET statut='annule' WHERE transaction_id=? AND statut='a_faire'", (a.transaction_id,))
+        con.commit(); print(f"Transaction #{a.transaction_id} annulée.")
     elif c == "transactions":
         afficher(con, "SELECT id, transaction_, client, statut, devise, rev, mensualite, versements_restants AS restants, "
                       "montant_paye, difference_rev_paye, du_ce_mois, taux_pct, montant_commission, commission_collectee, etat, prochain_follow_up "
@@ -499,6 +580,11 @@ def main():
         print(f"{importer(con, a.fichier)} transaction(s) importée(s).")
     elif c == "export":
         print(f"{exporter(con, a.fichier)} transaction(s) exportée(s) vers {a.fichier}.")
+
+    LECTURE = {"transactions", "clients", "du", "recevables", "mensuel", "recurrent", "suivis",
+               "versements", "previsions", "plan", "fiche", "export"}
+    if sauvegarde and c not in LECTURE:
+        sauvegarder(con, sauvegarde)
 
 
 if __name__ == "__main__":
