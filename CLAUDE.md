@@ -14,7 +14,7 @@ L'utilisateur remplit la base au fur et à mesure **en conversation** : « j'ai 
 
 ## Façon de travailler
 
-1. Toujours passer par `python crm.py ...` depuis `crm/`, jamais par du SQL écrit à la main dans la base, sauf pour une correction qu'aucune commande ne couvre. Dans ce cas, refaire ensuite une commande d'écriture ou appeler `sauvegarder`, pour que `donnees.sql` reflète la correction.
+1. Toujours passer par `python crm.py ...` depuis `crm/`, jamais par du SQL écrit à la main dans la base, sauf pour une correction qu'aucune commande ne couvre. Dans ce cas, lancer ensuite `python crm.py init`, qui réécrit `donnees.sql` à partir de la base.
 2. S'il manque une information pour une vente (REV, mensualité ou nombre de versements, date du 1er versement, taux s'il n'est pas 5 %), la demander au lieu de l'inventer.
 3. Après chaque saisie, montrer le résultat utile (`fiche "Client"`, `du`, `suivis`...).
 4. **Sauvegarder** : `crm/donnees.sql` est la seule copie durable des données, car `crm.db` n'est pas versionné et l'environnement est effacé après la session. Committer `crm/donnees.sql` et pousser après chaque série de saisies.
