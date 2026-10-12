@@ -1,57 +1,132 @@
 #!/usr/bin/env python3
-"""Outil en ligne de commande pour la base clients (SQLite, aucune dépendance).
+"""Suivi des paiements et commissions (SQLite, aucune dépendance).
 
-Exemples :
-    python crm.py init                      # crée crm.db
-    python crm.py demo                      # ajoute des données d'exemple
-    python crm.py clients                   # ventes et soldes par client
-    python crm.py recevables                # comptes à recevoir par ancienneté
-    python crm.py ventes                    # ventes par mois
-    python crm.py recurrent                 # revenu récurrent mensuel
-    python crm.py facturer                  # génère les factures des abonnements dus
-    python crm.py relances                  # crée des suivis pour les factures en retard
-    python crm.py suivis                    # liste des suivis à faire
-    python crm.py payer CLIENT_ID MONTANT [--methode interac] [--ref X]
-    python crm.py import-clients fichier.csv   # import d'un export Notion / Excel
+Consulter
+    python crm.py transactions        tableau complet (mêmes colonnes que le gabarit)
+    python crm.py clients             ventes, payé, solde dû et commissions par client
+    python crm.py du                  ce qui est dû ce mois-ci (et les retards)
+    python crm.py recevables          soldes dus par ancienneté
+    python crm.py mensuel             REV, encaissements et commissions par mois
+    python crm.py recurrent           revenu et commission récurrents par mois
+    python crm.py suivis              follow-ups à faire
+
+Saisir
+    python crm.py ajouter "Client" REV [--nom ...] [--type ...] [--devise CAD] [--echeance AAAA-MM-JJ]
+                          [--follow-up AAAA-MM-JJ] [--versements N] [--recurrent mensuel] ...
+    python crm.py payer TRANSACTION_ID MONTANT [--methode Interac] [--date AAAA-MM-JJ]
+    python crm.py suivi "Client" "Sujet" --date AAAA-MM-JJ [--transaction ID] [--tous-les 30]
+    python crm.py fait SUIVI_ID [--resultat "..."]
+
+Automatiser (à lancer chaque jour ou chaque semaine)
+    python crm.py generer             crée les transactions des récurrences arrivées à échéance
+    python crm.py relances            crée un follow-up pour chaque paiement en retard
+
+Échanger avec Notion / Google Sheets / Excel
+    python crm.py import fichier.csv  importe un fichier au format du gabarit
+    python crm.py export fichier.csv  exporte au format du gabarit (colonnes calculées remplies)
 """
 import argparse
 import csv
+import re
 import sqlite3
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 ICI = Path(__file__).resolve().parent
 SCHEMA = ICI / "schema.sql"
 DB_DEFAUT = ICI / "crm.db"
 
+# Colonnes exactes du gabarit -> colonnes de v_transactions
+GABARIT = [
+    ("Transaction", "transaction_"),
+    ("Date de follow up", "prochain_follow_up"),
+    ("Date du premier contact", "date_premier_contact"),
+    ("Type", "type"),
+    ("Client", "client"),
+    ("Statut", "statut"),
+    ("REV", "rev"),
+    ("MONTANT PAYER", "montant_paye"),
+    ("Différence REV - payé", "difference_rev_paye"),
+    ("MONTANT DE LA COMMISSIONS", "montant_commission"),
+    ("DU THIS MONTH", "du_ce_mois"),
+    ("Commission 5% REV", "commission_rev"),
+    ("Commission 5% REV collecté", "commission_collectee"),
+    ("Notes", "notes"),
+    ("Devise", "devise"),
+    ("Méthode", "methode"),
+    ("État", "etat"),
+]
+
 
 def connecter(chemin):
     con = sqlite3.connect(chemin)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
-    return con
-
-
-def init(con):
     con.executescript(SCHEMA.read_text(encoding="utf-8"))
-    con.commit()
+    return con
 
 
 def afficher(con, sql, params=()):
     cur = con.execute(sql, params)
-    lignes = cur.fetchall()
-    cols = [d[0] for d in cur.description]
+    lignes, cols = cur.fetchall(), [d[0].rstrip("_") for d in cur.description]
     if not lignes:
         print("(aucun résultat)")
         return
     fmt = lambda v: "" if v is None else (f"{v:,.2f}".replace(",", " ") if isinstance(v, float) else str(v))
-    data = [[fmt(r[c]) for c in cols] for r in lignes]
+    data = [[fmt(v) for v in r] for r in lignes]
     larg = [max(len(c), *(len(l[i]) for l in data)) for i, c in enumerate(cols)]
     print("  ".join(c.ljust(w) for c, w in zip(cols, larg)))
     print("  ".join("-" * w for w in larg))
     for l in data:
         print("  ".join(v.ljust(w) for v, w in zip(l, larg)))
+
+
+# ----------------------------------------------------------------------
+# Lecture tolérante des montants et des dates (formats Notion / Excel / FR / EN)
+# ----------------------------------------------------------------------
+def lire_montant(txt):
+    if txt is None:
+        return None
+    s = re.sub(r"[^\d,.\-]", "", str(txt).replace(" ", "").replace(" ", ""))
+    if not s or s in "-.,":
+        return None
+    if "," in s and "." in s:          # 1,234.56 ou 1.234,56
+        s = s.replace(",", "") if s.rfind(".") > s.rfind(",") else s.replace(".", "").replace(",", ".")
+    elif "," in s:                     # 1234,56 (FR) ou 1,234 (EN milliers)
+        s = s.replace(",", "") if re.fullmatch(r"-?\d{1,3}(,\d{3})+", s) else s.replace(",", ".")
+    try:
+        return round(float(s), 2)
+    except ValueError:
+        return None
+
+
+MOIS = {m: i + 1 for i, m in enumerate(
+    ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"])}
+MOIS.update({m: i + 1 for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"])})
+MOIS.update({k[:3]: v for k, v in list(MOIS.items())})
+MOIS.update({"fevrier": 2, "aout": 8, "decembre": 12})
+
+
+def lire_date(txt):
+    if not txt or not str(txt).strip():
+        return None
+    s = str(txt).strip().split("→")[0].strip()          # plages Notion « A → B »
+    s = re.sub(r"\s+\d{1,2}:\d{2}.*$", "", s)            # retire l'heure
+    for f in ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(s, f).date().isoformat()
+        except ValueError:
+            pass
+    m = re.fullmatch(r"([A-Za-zéû.]+)\s+(\d{1,2}),?\s+(\d{4})", s)          # October 12, 2026
+    if m and m.group(1).lower().rstrip(".") in MOIS:
+        return date(int(m.group(3)), MOIS[m.group(1).lower().rstrip(".")], int(m.group(2))).isoformat()
+    m = re.fullmatch(r"(\d{1,2})(?:er)?\s+([A-Za-zéû.]+)\s+(\d{4})", s)    # 12 octobre 2026
+    if m and m.group(2).lower().rstrip(".") in MOIS:
+        return date(int(m.group(3)), MOIS[m.group(2).lower().rstrip(".")], int(m.group(1))).isoformat()
+    print(f"  ! date non reconnue, ignorée : {txt!r}")
+    return None
 
 
 # ----------------------------------------------------------------------
@@ -64,213 +139,264 @@ def ajouter_mois(d, n):
     return date(a, m, min(d.day, fins[m - 1]))
 
 
-def periode_suivante(d, frequence):
-    return {
-        "hebdomadaire": lambda: d + timedelta(weeks=1),
-        "aux2semaines": lambda: d + timedelta(weeks=2),
-        "mensuel": lambda: ajouter_mois(d, 1),
-        "trimestriel": lambda: ajouter_mois(d, 3),
-        "semestriel": lambda: ajouter_mois(d, 6),
-        "annuel": lambda: ajouter_mois(d, 12),
-    }[frequence]()
+def periode_suivante(d, frequence, n=1):
+    return {"hebdomadaire": lambda: d + timedelta(weeks=n), "aux2semaines": lambda: d + timedelta(weeks=2 * n),
+            "mensuel": lambda: ajouter_mois(d, n), "trimestriel": lambda: ajouter_mois(d, 3 * n),
+            "semestriel": lambda: ajouter_mois(d, 6 * n), "annuel": lambda: ajouter_mois(d, 12 * n)}[frequence]()
 
 
-def prochain_numero(con, jour):
-    prefixe = f"F{jour.year}-"
-    r = con.execute("SELECT numero FROM factures WHERE numero LIKE ? ORDER BY numero DESC LIMIT 1",
-                    (prefixe + "%",)).fetchone()
-    n = int(r["numero"].split("-")[1]) + 1 if r else 1
-    return f"{prefixe}{n:04d}"
+# ----------------------------------------------------------------------
+# Opérations
+# ----------------------------------------------------------------------
+def client_id(con, nom_ou_id, creer=True):
+    if str(nom_ou_id).isdigit():
+        r = con.execute("SELECT id FROM clients WHERE id=?", (int(nom_ou_id),)).fetchone()
+        if r:
+            return r["id"]
+    r = con.execute("SELECT id FROM clients WHERE nom=?", (str(nom_ou_id).strip(),)).fetchone()
+    if r:
+        return r["id"]
+    if not creer:
+        sys.exit(f"Client introuvable : {nom_ou_id}")
+    return con.execute("INSERT INTO clients (nom) VALUES (?)", (str(nom_ou_id).strip(),)).lastrowid
 
 
-def creer_facture(con, client_id, lignes, jour=None, abonnement_id=None, notes=None):
-    """lignes : liste de dicts {description, quantite, prix_unitaire, taxable, produit_id}"""
-    jour = jour or date.today()
-    termes = con.execute("SELECT conditions_paiement_jours FROM clients WHERE id=?", (client_id,)).fetchone()[0]
-    cur = con.execute(
-        "INSERT INTO factures (numero, client_id, abonnement_id, date_emission, date_echeance, notes) "
-        "VALUES (?,?,?,?,?,?)",
-        (prochain_numero(con, jour), client_id, abonnement_id, jour.isoformat(),
-         (jour + timedelta(days=termes)).isoformat(), notes))
-    fid = cur.lastrowid
-    for l in lignes:
-        tax = l.get("taxable", 1)
-        con.execute(
-            "INSERT INTO lignes_facture (facture_id, produit_id, description, quantite, prix_unitaire, taux_tps, taux_tvq) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (fid, l.get("produit_id"), l["description"], l.get("quantite", 1), l["prix_unitaire"],
-             0.05 if tax else 0, 0.09975 if tax else 0))
-    return fid
+def ajouter_transaction(con, client, rev, nom=None, type_=None, statut="en cours", devise="CAD",
+                        methode=None, date_tx=None, echeance=None, premier_contact=None,
+                        taux=0.05, commission=None, notes=None, recurrence_id=None, follow_up=None):
+    cid = client_id(con, client)
+    date_tx = date_tx or date.today().isoformat()
+    tid = con.execute(
+        "INSERT INTO transactions (nom, client_id, recurrence_id, type, statut, date_premier_contact, date_transaction, "
+        "date_echeance, rev, taux_commission, commission_manuelle, devise, methode, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (nom or f"{client} {date_tx}", cid, recurrence_id, type_, statut or "en cours", premier_contact, date_tx,
+         echeance, rev, taux, commission, (devise or "CAD").upper(), methode, notes)).lastrowid
+    if follow_up:
+        con.execute("INSERT INTO suivis (client_id, transaction_id, sujet, date_prevue) VALUES (?,?,?,?)",
+                    (cid, tid, f"Follow up : {nom or client}", follow_up))
+    return tid
 
 
-def facturer_recurrents(con, jusqua=None):
-    """Crée une facture par période due (rattrape les périodes manquées)."""
-    jusqua = jusqua or date.today()
-    crees = 0
-    for a in con.execute("SELECT * FROM abonnements WHERE statut='actif'").fetchall():
-        prochaine = date.fromisoformat(a["prochaine_facturation"])
-        fin = date.fromisoformat(a["date_fin"]) if a["date_fin"] else None
-        while prochaine <= jusqua and (fin is None or prochaine <= fin):
-            creer_facture(con, a["client_id"], [{
-                "description": f"{a['description']} ({a['frequence']}, période du {prochaine.isoformat()})",
-                "quantite": a["quantite"], "prix_unitaire": a["montant"],
-                "taxable": a["taxable"], "produit_id": a["produit_id"]}],
-                jour=prochaine, abonnement_id=a["id"])
-            crees += 1
-            prochaine = periode_suivante(prochaine, a["frequence"])
-        statut = "termine" if fin and prochaine > fin else a["statut"]
-        con.execute("UPDATE abonnements SET prochaine_facturation=?, statut=? WHERE id=?",
-                    (prochaine.isoformat(), statut, a["id"]))
+def creer_echeancier(con, tid, versements, frequence, debut):
+    rev = con.execute("SELECT rev FROM transactions WHERE id=?", (tid,)).fetchone()["rev"]
+    con.execute("DELETE FROM echeances WHERE transaction_id=?", (tid,))
+    part = round(rev / versements, 2)
+    for i in range(versements):
+        montant = part if i < versements - 1 else round(rev - part * (versements - 1), 2)  # dernier = reste
+        con.execute("INSERT INTO echeances (transaction_id, date, montant) VALUES (?,?,?)",
+                    (tid, periode_suivante(debut, frequence, i).isoformat(), montant))
+
+
+def generer_recurrences(con, jusqua=None):
+    jusqua, n = jusqua or date.today(), 0
+    for r in con.execute("SELECT r.*, c.nom AS client FROM recurrences r JOIN clients c ON c.id=r.client_id "
+                         "WHERE r.actif=1").fetchall():
+        d = date.fromisoformat(r["prochaine_date"])
+        fin = date.fromisoformat(r["date_fin"]) if r["date_fin"] else None
+        while d <= jusqua and (fin is None or d <= fin):
+            ajouter_transaction(con, r["client_id"], r["rev"], nom=f"{r['description']} – {d:%Y-%m}",
+                                type_=r["type"], statut="récurrent", devise=r["devise"], methode=r["methode"],
+                                date_tx=d.isoformat(),
+                                echeance=(d + timedelta(days=r["delai_paiement_jours"])).isoformat(),
+                                taux=r["taux_commission"], recurrence_id=r["id"])
+            d, n = periode_suivante(d, r["frequence"]), n + 1
+        con.execute("UPDATE recurrences SET prochaine_date=?, actif=? WHERE id=?",
+                    (d.isoformat(), 0 if fin and d > fin else 1, r["id"]))
     con.commit()
-    return crees
+    return n
 
 
 def creer_relances(con):
-    """Un suivi « relance_paiement » par facture en retard qui n'en a pas déjà un ouvert."""
     rows = con.execute("""
-        SELECT f.id, f.client_id, f.numero, f.solde, f.jours_retard FROM v_factures f
-        WHERE f.statut = 'en_retard'
-          AND NOT EXISTS (SELECT 1 FROM suivis s WHERE s.facture_id = f.id
-                          AND s.type='relance_paiement' AND s.statut IN ('a_faire','en_cours'))
+        SELECT v.id, v.client_id, v.transaction_, v.en_retard, v.devise FROM v_transactions v
+        WHERE v.en_retard > 0.005 AND NOT EXISTS (
+            SELECT 1 FROM suivis s WHERE s.transaction_id = v.id AND s.type='relance_paiement' AND s.statut='a_faire')
     """).fetchall()
     for r in rows:
-        prio = "haute" if r["jours_retard"] > 30 else "normale"
-        con.execute("INSERT INTO suivis (client_id, facture_id, type, sujet, date_prevue, priorite) "
-                    "VALUES (?,?,'relance_paiement',?,date('now'),?)",
-                    (r["client_id"], r["id"],
-                     f"Relancer facture {r['numero']} : {r['solde']:.2f} $ ({r['jours_retard']} j de retard)", prio))
+        con.execute("INSERT INTO suivis (client_id, transaction_id, type, sujet, date_prevue, priorite) "
+                    "VALUES (?,?,'relance_paiement',?,date('now'),'haute')",
+                    (r["client_id"], r["id"], f"Relancer paiement « {r['transaction_'] } » : {r['en_retard']:.2f} {r['devise']}"))
     con.commit()
     return len(rows)
 
 
-def enregistrer_paiement(con, client_id, montant, methode=None, reference=None, jour=None):
-    """Enregistre un paiement et l'applique aux plus vieilles factures impayées (FIFO)."""
-    pid = con.execute("INSERT INTO paiements (client_id, date, montant, methode, reference) VALUES (?,?,?,?,?)",
-                      (client_id, (jour or date.today()).isoformat(), montant, methode, reference)).lastrowid
-    reste = round(montant, 2)
-    for f in con.execute("SELECT id, solde FROM v_factures WHERE client_id=? AND solde > 0.005 "
-                         "ORDER BY date_echeance, id", (client_id,)).fetchall():
-        if reste <= 0:
-            break
-        part = round(min(reste, f["solde"]), 2)
-        con.execute("INSERT INTO allocations_paiement (paiement_id, facture_id, montant) VALUES (?,?,?)",
-                    (pid, f["id"], part))
-        reste = round(reste - part, 2)
-    con.commit()
-    return pid, reste
-
-
 # ----------------------------------------------------------------------
-# Import CSV (export Notion, Excel, Google Sheets...)
+# Import / export au format du gabarit
 # ----------------------------------------------------------------------
-ALIAS = {
-    "nom": ["nom", "name", "client", "nom du client", "nom complet"],
-    "entreprise": ["entreprise", "company", "compagnie", "société", "societe", "organisation"],
-    "courriel": ["courriel", "email", "e-mail", "mail", "adresse courriel"],
-    "telephone": ["telephone", "téléphone", "phone", "tel", "tél", "cellulaire"],
-    "adresse": ["adresse", "address"],
-    "ville": ["ville", "city"],
-    "statut": ["statut", "status", "état", "etat"],
-    "source": ["source", "provenance"],
-    "etiquettes": ["etiquettes", "étiquettes", "tags", "catégorie", "categorie"],
-    "notes": ["notes", "note", "commentaires", "description"],
-}
-STATUTS = {"prospect": "prospect", "lead": "prospect", "actif": "actif", "active": "actif",
-           "client": "actif", "inactif": "inactif", "inactive": "inactif", "perdu": "perdu", "lost": "perdu"}
-
-
-def importer_clients(con, fichier):
+def importer(con, fichier):
     with open(fichier, newline="", encoding="utf-8-sig") as fh:
         lecteur = csv.DictReader(fh)
-        entetes = {h.strip().lower(): h for h in lecteur.fieldnames or []}
-        carte = {champ: entetes[a] for champ, alias in ALIAS.items() for a in alias if a in entetes}
-        if "nom" not in carte:
-            sys.exit(f"Colonne du nom introuvable. Colonnes vues : {list(entetes.values())}")
-        print("Correspondance des colonnes :", {k: v for k, v in carte.items()})
+        norm = lambda s: re.sub(r"\s+", " ", s.strip().lower())
+        entetes = {norm(h): h for h in lecteur.fieldnames or []}
+        col = lambda ligne, nom: (ligne.get(entetes.get(norm(nom), ""), "") or "").strip() or None
         n = 0
         for ligne in lecteur:
-            val = {k: (ligne.get(v) or "").strip() or None for k, v in carte.items()}
-            if not val["nom"]:
+            client, nom = col(ligne, "Client"), col(ligne, "Transaction")
+            if not (client or nom):
                 continue
-            val["statut"] = STATUTS.get((val.get("statut") or "actif").lower(), "actif")
-            cols = list(val)
-            con.execute(f"INSERT INTO clients ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
-                        [val[c] for c in cols])
+            rev = lire_montant(col(ligne, "REV")) or 0.0
+            paye = lire_montant(col(ligne, "MONTANT PAYER")) or 0.0
+            comm = lire_montant(col(ligne, "MONTANT DE LA COMMISSIONS"))
+            contact = lire_date(col(ligne, "Date du premier contact"))
+            tid = ajouter_transaction(
+                con, client or "(sans nom)", rev, nom=nom, type_=col(ligne, "Type"), statut=col(ligne, "Statut"),
+                devise=col(ligne, "Devise"), methode=col(ligne, "Méthode"), premier_contact=contact,
+                date_tx=contact, notes=col(ligne, "Notes"),
+                commission=comm if comm is not None and abs(comm - rev * 0.05) > 0.01 else None,
+                follow_up=lire_date(col(ligne, "Date de follow up")))
+            if paye > 0:
+                con.execute("INSERT INTO paiements (transaction_id, date, montant, methode, notes) VALUES (?,?,?,?,?)",
+                            (tid, contact or date.today().isoformat(), paye, col(ligne, "Méthode"), "importé"))
             n += 1
     con.commit()
     return n
 
 
+def exporter(con, fichier):
+    rows = con.execute(f"SELECT {', '.join(c for _, c in GABARIT)} FROM v_transactions ORDER BY date_transaction, id")
+    with open(fichier, "w", newline="", encoding="utf-8-sig") as fh:
+        w = csv.writer(fh)
+        w.writerow([h for h, _ in GABARIT])
+        n = 0
+        for r in rows:
+            w.writerow(["" if v is None else v for v in r])
+            n += 1
+    return n
+
+
 # ----------------------------------------------------------------------
 def demo(con):
-    if con.execute("SELECT COUNT(*) FROM clients").fetchone()[0]:
-        sys.exit("La base contient déjà des clients ; démo ignorée.")
+    if con.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]:
+        sys.exit("La base contient déjà des transactions ; démo ignorée.")
     t = date.today()
-    c1 = con.execute("INSERT INTO clients (nom, entreprise, courriel, statut, conditions_paiement_jours) "
-                     "VALUES ('Marie Tremblay','Boulangerie MT','marie@exemple.ca','actif',15)").lastrowid
-    c2 = con.execute("INSERT INTO clients (nom, entreprise, courriel, statut) "
-                     "VALUES ('Jean Gagnon','Gagnon Construction','jean@exemple.ca','actif')").lastrowid
-    c3 = con.execute("INSERT INTO clients (nom, statut, source) VALUES ('Sophie Roy','prospect','Référence')").lastrowid
-    con.execute("INSERT INTO produits (nom, prix_unitaire) VALUES ('Consultation (heure)', 95), ('Forfait gestion mensuel', 450)")
-    con.execute("INSERT INTO abonnements (client_id, produit_id, description, montant, frequence, date_debut, prochaine_facturation) "
-                "VALUES (?,2,'Forfait gestion mensuel',450,'mensuel',?,?)",
-                (c1, ajouter_mois(t, -3).isoformat(), ajouter_mois(t, -3).isoformat()))
-    creer_facture(con, c2, [{"description": "Consultation", "quantite": 10, "prix_unitaire": 95}], jour=t - timedelta(days=75))
-    creer_facture(con, c2, [{"description": "Consultation", "quantite": 4, "prix_unitaire": 95}], jour=t - timedelta(days=10))
-    facturer_recurrents(con)
-    enregistrer_paiement(con, c1, 1000, "interac")
-    enregistrer_paiement(con, c2, 500, "cheque", "CHQ-1042")
-    con.execute("INSERT INTO suivis (client_id, type, sujet, date_prevue, recurrence_jours) "
-                "VALUES (?, 'appel', 'Appel de courtoisie trimestriel', date('now'), 90)", (c1,))
-    con.execute("INSERT INTO suivis (client_id, type, sujet, date_prevue, priorite) "
-                "VALUES (?, 'rencontre', 'Présenter la soumission', date('now','+3 days'), 'haute')", (c3,))
+    j = lambda n: (t + timedelta(days=n)).isoformat()
+    a = ajouter_transaction(con, "Marie Tremblay", 12000, nom="Mandat site web", type_="Projet", statut="Signé",
+                            premier_contact=j(-90), date_tx=j(-60), echeance=j(-30), methode="Virement", follow_up=j(2))
+    con.execute("INSERT INTO paiements (transaction_id, date, montant, methode) VALUES (?,?,?,?)", (a, j(-40), 5000, "Virement"))
+    b = ajouter_transaction(con, "Gagnon Construction", 8000, nom="Contrat rénovation", type_="Projet", statut="Signé",
+                            premier_contact=j(-45), date_tx=j(-20), methode="Chèque")
+    creer_echeancier(con, b, 4, "mensuel", t - timedelta(days=20))
+    con.execute("INSERT INTO paiements (transaction_id, date, montant, methode) VALUES (?,?,?,?)", (b, j(-18), 2000, "Chèque"))
+    ajouter_transaction(con, "Acme USA", 3000, nom="Consultation", type_="Service", statut="Signé", devise="USD",
+                        date_tx=j(-5), echeance=j(25), methode="Wire")
+    cid = client_id(con, "Marie Tremblay")
+    con.execute("INSERT INTO recurrences (client_id, description, type, rev, frequence, date_debut, prochaine_date, methode) "
+                "VALUES (?, 'Entretien mensuel', 'Récurrent', 500, 'mensuel', ?, ?, 'Interac')",
+                (cid, ajouter_mois(t, -2).isoformat(), ajouter_mois(t, -2).isoformat()))
+    generer_recurrences(con)
+    con.execute("INSERT INTO suivis (client_id, type, sujet, date_prevue, recurrence_jours) VALUES "
+                "(?, 'appel', 'Appel de courtoisie', date('now'), 90)", (cid,))
     con.commit()
     creer_relances(con)
 
 
 def main():
-    p = argparse.ArgumentParser(description="Base clients : ventes, recevables, récurrences, suivis")
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--db", default=str(DB_DEFAUT))
     sp = p.add_subparsers(dest="cmd", required=True)
-    for c in ["init", "demo", "clients", "recevables", "ventes", "recurrent", "facturer", "relances", "suivis"]:
+    for c in ["init", "demo", "transactions", "clients", "du", "recevables", "mensuel", "recurrent",
+              "suivis", "generer", "relances"]:
         sp.add_parser(c)
-    pp = sp.add_parser("payer")
-    pp.add_argument("client_id", type=int)
-    pp.add_argument("montant", type=float)
-    pp.add_argument("--methode")
-    pp.add_argument("--ref")
-    pi = sp.add_parser("import-clients")
-    pi.add_argument("fichier")
+
+    s = sp.add_parser("ajouter", help="nouvelle transaction (ou récurrence)")
+    s.add_argument("client"); s.add_argument("rev", type=float)
+    s.add_argument("--nom"); s.add_argument("--type"); s.add_argument("--statut", default="en cours")
+    s.add_argument("--devise", default="CAD"); s.add_argument("--methode"); s.add_argument("--notes")
+    s.add_argument("--date", help="date de la transaction (défaut : aujourd'hui)")
+    s.add_argument("--echeance", help="date où le paiement est dû")
+    s.add_argument("--premier-contact"); s.add_argument("--follow-up")
+    s.add_argument("--taux", type=float, default=0.05, help="taux de commission (défaut 0.05)")
+    s.add_argument("--commission", type=float, help="montant de commission fixe (remplace taux × REV)")
+    s.add_argument("--versements", type=int, help="payable en N versements")
+    s.add_argument("--frequence", default="mensuel", help="fréquence des versements")
+    s.add_argument("--recurrent", choices=["hebdomadaire", "aux2semaines", "mensuel", "trimestriel", "semestriel", "annuel"],
+                   help="crée une récurrence : une transaction par période")
+    s.add_argument("--fin", help="date de fin de la récurrence")
+    s.add_argument("--delai", type=int, default=0, help="jours accordés pour payer (récurrence)")
+
+    s = sp.add_parser("payer"); s.add_argument("transaction_id", type=int); s.add_argument("montant", type=float)
+    s.add_argument("--methode"); s.add_argument("--ref"); s.add_argument("--date")
+
+    s = sp.add_parser("suivi"); s.add_argument("client"); s.add_argument("sujet")
+    s.add_argument("--date", required=True); s.add_argument("--transaction", type=int)
+    s.add_argument("--type", default="follow_up"); s.add_argument("--priorite", default="normale")
+    s.add_argument("--tous-les", type=int, help="répéter tous les N jours")
+
+    s = sp.add_parser("fait"); s.add_argument("suivi_id", type=int); s.add_argument("--resultat")
+    s = sp.add_parser("import"); s.add_argument("fichier")
+    s = sp.add_parser("export"); s.add_argument("fichier")
     a = p.parse_args()
 
     con = connecter(a.db)
-    init(con)  # idempotent : garde le schéma à jour
-    if a.cmd == "init":
+    c = a.cmd
+    if c == "init":
         print(f"Base prête : {a.db}")
-    elif a.cmd == "demo":
+    elif c == "demo":
         demo(con); print("Données d'exemple ajoutées.")
-    elif a.cmd == "clients":
-        afficher(con, "SELECT id, nom, statut, nb_factures, ventes_avant_taxes, ventes_ttc, total_paye, "
-                      "solde_du, solde_en_retard, prochain_suivi FROM v_clients_resume ORDER BY solde_du DESC")
-    elif a.cmd == "recevables":
-        afficher(con, "SELECT * FROM v_comptes_recevables")
-        r = con.execute("SELECT ROUND(COALESCE(SUM(total_du),0),2) FROM v_comptes_recevables").fetchone()[0]
-        print(f"\nTotal à recevoir : {r:,.2f} $".replace(",", " "))
-    elif a.cmd == "ventes":
-        afficher(con, "SELECT * FROM v_ventes_mensuelles")
-    elif a.cmd == "recurrent":
-        afficher(con, "SELECT * FROM v_revenu_recurrent ORDER BY revenu_mensuel DESC")
-    elif a.cmd == "facturer":
-        print(f"{facturer_recurrents(con)} facture(s) récurrente(s) créée(s).")
-    elif a.cmd == "relances":
+    elif c == "transactions":
+        afficher(con, "SELECT id, transaction_, client, statut, devise, rev, montant_paye, difference_rev_paye, "
+                      "du_ce_mois, montant_commission, commission_collectee, etat, prochain_follow_up "
+                      "FROM v_transactions ORDER BY date_transaction, id")
+    elif c == "clients":
+        afficher(con, "SELECT client, devise, nb_transactions, ventes_rev, total_paye, solde_du, du_ce_mois, en_retard, "
+                      "commissions, commissions_collectees, prochain_follow_up FROM v_clients ORDER BY solde_du DESC")
+    elif c == "du":
+        afficher(con, "SELECT * FROM v_du_ce_mois")
+        for r in con.execute("SELECT devise, ROUND(SUM(du_ce_mois),2) t FROM v_du_ce_mois GROUP BY devise"):
+            print(f"Total dû ce mois : {r['t']:,.2f} {r['devise']}".replace(",", " "))
+    elif c == "recevables":
+        afficher(con, "SELECT * FROM v_recevables")
+    elif c == "mensuel":
+        afficher(con, "SELECT * FROM v_mensuel")
+    elif c == "recurrent":
+        afficher(con, "SELECT client, devise, nb, rev_mensuel, commission_mensuelle, prochaine_date FROM v_recurrent")
+    elif c == "suivis":
+        afficher(con, "SELECT * FROM v_suivis")
+    elif c == "generer":
+        print(f"{generer_recurrences(con)} transaction(s) récurrente(s) créée(s).")
+    elif c == "relances":
         print(f"{creer_relances(con)} relance(s) créée(s).")
-    elif a.cmd == "suivis":
-        afficher(con, "SELECT * FROM v_suivis_a_faire")
-    elif a.cmd == "payer":
-        pid, reste = enregistrer_paiement(con, a.client_id, a.montant, a.methode, a.ref)
-        print(f"Paiement #{pid} enregistré." + (f" Crédit non appliqué : {reste:.2f} $" if reste else ""))
-    elif a.cmd == "import-clients":
-        print(f"{importer_clients(con, a.fichier)} client(s) importé(s).")
+    elif c == "ajouter":
+        if a.recurrent:
+            debut = a.date or date.today().isoformat()
+            rid = con.execute(
+                "INSERT INTO recurrences (client_id, description, type, rev, devise, taux_commission, methode, frequence, "
+                "delai_paiement_jours, date_debut, date_fin, prochaine_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (client_id(con, a.client), a.nom or a.client, a.type, a.rev, a.devise.upper(), a.taux, a.methode,
+                 a.recurrent, a.delai, debut, a.fin, debut)).lastrowid
+            con.commit()
+            print(f"Récurrence #{rid} créée ; {generer_recurrences(con)} transaction(s) générée(s).")
+        else:
+            tid = ajouter_transaction(con, a.client, a.rev, a.nom, a.type, a.statut, a.devise, a.methode, a.date,
+                                      a.echeance, a.premier_contact, a.taux, a.commission, a.notes, follow_up=a.follow_up)
+            if a.versements:
+                creer_echeancier(con, tid, a.versements, a.frequence,
+                                 date.fromisoformat(a.echeance or a.date or date.today().isoformat()))
+            con.commit()
+            print(f"Transaction #{tid} créée.")
+    elif c == "payer":
+        tx = con.execute("SELECT difference_rev_paye, devise FROM v_transactions WHERE id=?", (a.transaction_id,)).fetchone()
+        if not tx:
+            sys.exit("Transaction introuvable.")
+        con.execute("INSERT INTO paiements (transaction_id, date, montant, methode, reference) VALUES (?,?,?,?,?)",
+                    (a.transaction_id, a.date or date.today().isoformat(), a.montant, a.methode, a.ref))
+        con.commit()
+        reste = round(tx["difference_rev_paye"] - a.montant, 2)
+        print(f"Paiement enregistré. Reste à payer : {reste:.2f} {tx['devise']}"
+              + ("  (attention : paiement supérieur au solde)" if reste < 0 else ""))
+    elif c == "suivi":
+        con.execute("INSERT INTO suivis (client_id, transaction_id, type, sujet, date_prevue, priorite, recurrence_jours) "
+                    "VALUES (?,?,?,?,?,?,?)", (client_id(con, a.client), a.transaction, a.type, a.sujet,
+                                               a.date, a.priorite, a.tous_les))
+        con.commit(); print("Suivi ajouté.")
+    elif c == "fait":
+        con.execute("UPDATE suivis SET statut='fait', date_realisee=date('now'), resultat=? WHERE id=?",
+                    (a.resultat, a.suivi_id))
+        con.commit(); print("Suivi marqué fait.")
+    elif c == "import":
+        print(f"{importer(con, a.fichier)} transaction(s) importée(s).")
+    elif c == "export":
+        print(f"{exporter(con, a.fichier)} transaction(s) exportée(s) vers {a.fichier}.")
 
 
 if __name__ == "__main__":

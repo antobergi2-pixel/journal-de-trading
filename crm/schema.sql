@@ -1,6 +1,15 @@
 -- =====================================================================
---  Base de données clients : ventes, comptes à recevoir, récurrences, suivis
---  Moteur : SQLite 3 (aucune installation serveur requise)
+--  Suivi des paiements et commissions
+--  Structure calquée sur le gabarit « Suivi paiements (commissions) » :
+--  Transaction, Date de follow up, Date du premier contact, Type, Client,
+--  Statut, REV, MONTANT PAYÉ, Différence REV - payé, MONTANT DE LA COMMISSION,
+--  DU THIS MONTH, Commission 5% REV, Commission 5% REV collecté, Notes,
+--  Devise, Méthode, État
+--
+--  Les colonnes calculées du gabarit (Différence, DU THIS MONTH,
+--  Commission 5 %, Commission collectée, État) ne sont PAS saisies :
+--  elles sont produites par les vues ci-dessous.
+--  Moteur : SQLite 3
 -- =====================================================================
 PRAGMA foreign_keys = ON;
 
@@ -8,306 +17,282 @@ PRAGMA foreign_keys = ON;
 -- CLIENTS
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clients (
-    id                      INTEGER PRIMARY KEY,
-    nom                     TEXT    NOT NULL,
-    entreprise              TEXT,
-    courriel                TEXT,
-    telephone               TEXT,
-    adresse                 TEXT,
-    ville                   TEXT,
-    province                TEXT    DEFAULT 'QC',
-    code_postal             TEXT,
-    statut                  TEXT    NOT NULL DEFAULT 'actif'
-                            CHECK (statut IN ('prospect','actif','inactif','perdu')),
-    source                  TEXT,                       -- référence, site web, réseau...
-    etiquettes              TEXT,                       -- ex. "VIP,mensuel"
-    conditions_paiement_jours INTEGER NOT NULL DEFAULT 30, -- Net 30 par défaut
-    limite_credit           REAL,
-    notes                   TEXT,
-    date_creation           TEXT    NOT NULL DEFAULT (date('now')),
-    date_maj                TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_clients_statut ON clients(statut);
-CREATE INDEX IF NOT EXISTS idx_clients_nom    ON clients(nom);
-
--- Personnes-ressources (plusieurs par client)
-CREATE TABLE IF NOT EXISTS contacts (
-    id          INTEGER PRIMARY KEY,
-    client_id   INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-    nom         TEXT    NOT NULL,
-    role        TEXT,
-    courriel    TEXT,
-    telephone   TEXT,
-    principal   INTEGER NOT NULL DEFAULT 0 CHECK (principal IN (0,1))
-);
-CREATE INDEX IF NOT EXISTS idx_contacts_client ON contacts(client_id);
-
--- ---------------------------------------------------------------------
--- CATALOGUE
--- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS produits (
     id              INTEGER PRIMARY KEY,
-    nom             TEXT    NOT NULL UNIQUE,
-    description     TEXT,
-    prix_unitaire   REAL    NOT NULL DEFAULT 0,
-    taxable         INTEGER NOT NULL DEFAULT 1 CHECK (taxable IN (0,1)),
-    actif           INTEGER NOT NULL DEFAULT 1 CHECK (actif IN (0,1))
+    nom             TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    entreprise      TEXT,
+    courriel        TEXT,
+    telephone       TEXT,
+    statut          TEXT    NOT NULL DEFAULT 'actif'
+                    CHECK (statut IN ('prospect','actif','inactif','perdu')),
+    source          TEXT,
+    devise          TEXT    NOT NULL DEFAULT 'CAD',
+    notes           TEXT,
+    date_creation   TEXT    NOT NULL DEFAULT (date('now'))
 );
 
 -- ---------------------------------------------------------------------
--- RÉCURRENCES (abonnements / mandats récurrents)
+-- RÉCURRENCES : un mandat récurrent génère une transaction par période
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS abonnements (
-    id                      INTEGER PRIMARY KEY,
-    client_id               INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-    produit_id              INTEGER REFERENCES produits(id),
-    description             TEXT    NOT NULL,
-    montant                 REAL    NOT NULL,           -- avant taxes, par période
-    quantite                REAL    NOT NULL DEFAULT 1,
-    taxable                 INTEGER NOT NULL DEFAULT 1 CHECK (taxable IN (0,1)),
-    frequence               TEXT    NOT NULL DEFAULT 'mensuel'
-                            CHECK (frequence IN ('hebdomadaire','aux2semaines','mensuel','trimestriel','semestriel','annuel')),
-    date_debut              TEXT    NOT NULL,
-    date_fin                TEXT,                       -- NULL = sans fin
-    prochaine_facturation   TEXT    NOT NULL,
-    statut                  TEXT    NOT NULL DEFAULT 'actif'
-                            CHECK (statut IN ('actif','pause','annule','termine')),
-    notes                   TEXT
+CREATE TABLE IF NOT EXISTS recurrences (
+    id                  INTEGER PRIMARY KEY,
+    client_id           INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    description         TEXT    NOT NULL,
+    type                TEXT,
+    rev                 REAL    NOT NULL CHECK (rev >= 0),
+    devise              TEXT    NOT NULL DEFAULT 'CAD',
+    taux_commission     REAL    NOT NULL DEFAULT 0.05,
+    methode             TEXT,
+    frequence           TEXT    NOT NULL DEFAULT 'mensuel'
+                        CHECK (frequence IN ('hebdomadaire','aux2semaines','mensuel','trimestriel','semestriel','annuel')),
+    delai_paiement_jours INTEGER NOT NULL DEFAULT 0,
+    date_debut          TEXT    NOT NULL,
+    date_fin            TEXT,
+    prochaine_date      TEXT    NOT NULL,
+    actif               INTEGER NOT NULL DEFAULT 1 CHECK (actif IN (0,1))
 );
-CREATE INDEX IF NOT EXISTS idx_abo_client    ON abonnements(client_id);
-CREATE INDEX IF NOT EXISTS idx_abo_prochaine ON abonnements(statut, prochaine_facturation);
+CREATE INDEX IF NOT EXISTS idx_rec_prochaine ON recurrences(actif, prochaine_date);
 
 -- ---------------------------------------------------------------------
--- FACTURES (ventes)
+-- TRANSACTIONS (une ligne du gabarit)
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS factures (
+CREATE TABLE IF NOT EXISTS transactions (
+    id                  INTEGER PRIMARY KEY,
+    nom                 TEXT    NOT NULL,                 -- colonne « Transaction »
+    client_id           INTEGER NOT NULL REFERENCES clients(id),
+    recurrence_id       INTEGER REFERENCES recurrences(id) ON DELETE SET NULL,
+    type                TEXT,                             -- « Type »
+    statut              TEXT    NOT NULL DEFAULT 'en cours', -- « Statut » (étape de la vente)
+    date_premier_contact TEXT,                            -- « Date du premier contact »
+    date_transaction    TEXT    NOT NULL DEFAULT (date('now')),
+    date_echeance       TEXT,                             -- date où le paiement est dû
+    rev                 REAL    NOT NULL DEFAULT 0 CHECK (rev >= 0),  -- « REV »
+    taux_commission     REAL    NOT NULL DEFAULT 0.05,    -- 5 % par défaut
+    commission_manuelle REAL,                             -- « MONTANT DE LA COMMISSION » si différent de taux × REV
+    devise              TEXT    NOT NULL DEFAULT 'CAD',   -- « Devise »
+    methode             TEXT,                             -- « Méthode » prévue
+    annulee             INTEGER NOT NULL DEFAULT 0 CHECK (annulee IN (0,1)),
+    notes               TEXT                              -- « Notes »
+);
+CREATE INDEX IF NOT EXISTS idx_tx_client   ON transactions(client_id);
+CREATE INDEX IF NOT EXISTS idx_tx_echeance ON transactions(date_echeance);
+
+-- Échéancier optionnel : pour un paiement en plusieurs versements.
+-- Sans échéancier, la transaction est due en entier à sa date d'échéance.
+CREATE TABLE IF NOT EXISTS echeances (
     id              INTEGER PRIMARY KEY,
-    numero          TEXT    NOT NULL UNIQUE,
-    client_id       INTEGER NOT NULL REFERENCES clients(id),
-    abonnement_id   INTEGER REFERENCES abonnements(id) ON DELETE SET NULL,
-    date_emission   TEXT    NOT NULL DEFAULT (date('now')),
-    date_echeance   TEXT    NOT NULL,
-    statut          TEXT    NOT NULL DEFAULT 'envoyee'
-                    CHECK (statut IN ('brouillon','envoyee','annulee')),
-                    -- payée / partielle / en retard sont CALCULÉS (voir v_factures)
-    notes           TEXT
+    transaction_id  INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    date            TEXT    NOT NULL,
+    montant         REAL    NOT NULL CHECK (montant > 0)
 );
-CREATE INDEX IF NOT EXISTS idx_factures_client   ON factures(client_id);
-CREATE INDEX IF NOT EXISTS idx_factures_echeance ON factures(date_echeance);
-CREATE INDEX IF NOT EXISTS idx_factures_emission ON factures(date_emission);
-
-CREATE TABLE IF NOT EXISTS lignes_facture (
-    id              INTEGER PRIMARY KEY,
-    facture_id      INTEGER NOT NULL REFERENCES factures(id) ON DELETE CASCADE,
-    produit_id      INTEGER REFERENCES produits(id),
-    description     TEXT    NOT NULL,
-    quantite        REAL    NOT NULL DEFAULT 1,
-    prix_unitaire   REAL    NOT NULL,
-    remise_pct      REAL    NOT NULL DEFAULT 0 CHECK (remise_pct BETWEEN 0 AND 100),
-    taux_tps        REAL    NOT NULL DEFAULT 0.05,      -- TPS fédérale
-    taux_tvq        REAL    NOT NULL DEFAULT 0.09975    -- TVQ Québec
-);
-CREATE INDEX IF NOT EXISTS idx_lignes_facture ON lignes_facture(facture_id);
+CREATE INDEX IF NOT EXISTS idx_ech_tx ON echeances(transaction_id, date);
 
 -- ---------------------------------------------------------------------
--- PAIEMENTS (un paiement peut couvrir plusieurs factures, et une
--- facture peut être payée en plusieurs versements)
+-- PAIEMENTS reçus (« MONTANT PAYÉ » = somme des paiements)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS paiements (
-    id          INTEGER PRIMARY KEY,
-    client_id   INTEGER NOT NULL REFERENCES clients(id),
-    date        TEXT    NOT NULL DEFAULT (date('now')),
-    montant     REAL    NOT NULL CHECK (montant > 0),
-    methode     TEXT    CHECK (methode IN ('virement','interac','cheque','comptant','carte','paypal','stripe','autre')),
-    reference   TEXT,
-    notes       TEXT
+    id              INTEGER PRIMARY KEY,
+    transaction_id  INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    date            TEXT    NOT NULL DEFAULT (date('now')),
+    montant         REAL    NOT NULL CHECK (montant > 0),
+    methode         TEXT,
+    reference       TEXT,
+    notes           TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_paiements_client ON paiements(client_id);
-
-CREATE TABLE IF NOT EXISTS allocations_paiement (
-    paiement_id INTEGER NOT NULL REFERENCES paiements(id) ON DELETE CASCADE,
-    facture_id  INTEGER NOT NULL REFERENCES factures(id)  ON DELETE CASCADE,
-    montant     REAL    NOT NULL CHECK (montant > 0),
-    PRIMARY KEY (paiement_id, facture_id)
-);
-CREATE INDEX IF NOT EXISTS idx_alloc_facture ON allocations_paiement(facture_id);
+CREATE INDEX IF NOT EXISTS idx_paie_tx   ON paiements(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_paie_date ON paiements(date);
 
 -- ---------------------------------------------------------------------
--- SUIVIS (tracker : relances, appels, rendez-vous, tâches)
+-- SUIVIS (« Date de follow up » et historique des relances)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS suivis (
     id              INTEGER PRIMARY KEY,
     client_id       INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-    facture_id      INTEGER REFERENCES factures(id) ON DELETE SET NULL,
-    type            TEXT    NOT NULL DEFAULT 'tache'
-                    CHECK (type IN ('appel','courriel','rencontre','relance_paiement','renouvellement','tache','note')),
+    transaction_id  INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+    type            TEXT    NOT NULL DEFAULT 'follow_up'
+                    CHECK (type IN ('follow_up','appel','courriel','rencontre','relance_paiement','renouvellement','tache')),
     sujet           TEXT    NOT NULL,
     date_prevue     TEXT,
     date_realisee   TEXT,
     statut          TEXT    NOT NULL DEFAULT 'a_faire'
-                    CHECK (statut IN ('a_faire','en_cours','fait','annule')),
+                    CHECK (statut IN ('a_faire','fait','annule')),
     priorite        TEXT    NOT NULL DEFAULT 'normale'
                     CHECK (priorite IN ('basse','normale','haute')),
     resultat        TEXT,
-    -- Suivi récurrent (ex. appel de courtoisie tous les 90 jours)
-    recurrence_jours INTEGER CHECK (recurrence_jours IS NULL OR recurrence_jours > 0),
-    date_creation   TEXT    NOT NULL DEFAULT (datetime('now'))
+    recurrence_jours INTEGER CHECK (recurrence_jours IS NULL OR recurrence_jours > 0)
 );
-CREATE INDEX IF NOT EXISTS idx_suivis_client ON suivis(client_id);
-CREATE INDEX IF NOT EXISTS idx_suivis_todo   ON suivis(statut, date_prevue);
+CREATE INDEX IF NOT EXISTS idx_suivis_todo ON suivis(statut, date_prevue);
 
--- Quand un suivi récurrent est marqué « fait », on crée automatiquement le prochain.
+-- Un suivi récurrent marqué « fait » se recrée automatiquement.
 CREATE TRIGGER IF NOT EXISTS trg_suivi_recurrent
 AFTER UPDATE OF statut ON suivis
 WHEN NEW.statut = 'fait' AND OLD.statut <> 'fait' AND NEW.recurrence_jours IS NOT NULL
 BEGIN
-    INSERT INTO suivis (client_id, type, sujet, date_prevue, priorite, recurrence_jours)
-    VALUES (NEW.client_id, NEW.type, NEW.sujet,
+    INSERT INTO suivis (client_id, transaction_id, type, sujet, date_prevue, priorite, recurrence_jours)
+    VALUES (NEW.client_id, NEW.transaction_id, NEW.type, NEW.sujet,
             date(COALESCE(NEW.date_realisee, date('now')), '+' || NEW.recurrence_jours || ' days'),
             NEW.priorite, NEW.recurrence_jours);
 END;
 
-CREATE TRIGGER IF NOT EXISTS trg_clients_maj
-AFTER UPDATE ON clients
-BEGIN
-    UPDATE clients SET date_maj = datetime('now') WHERE id = NEW.id;
-END;
-
--- Empêche d'allouer plus que le montant du paiement.
-CREATE TRIGGER IF NOT EXISTS trg_alloc_max
-BEFORE INSERT ON allocations_paiement
-WHEN (SELECT COALESCE(SUM(montant),0) FROM allocations_paiement WHERE paiement_id = NEW.paiement_id)
-     + NEW.montant > (SELECT montant FROM paiements WHERE id = NEW.paiement_id) + 0.005
-BEGIN
-    SELECT RAISE(ABORT, 'Allocation supérieure au montant du paiement');
-END;
-
 -- =====================================================================
---  VUES DE CALCUL
+--  VUES
 -- =====================================================================
 
--- Totaux par facture, avec taxes, montant payé, solde et statut calculé
-DROP VIEW IF EXISTS v_factures;
-CREATE VIEW v_factures AS
-WITH lignes AS (
-    SELECT facture_id,
-           ROUND(SUM(quantite * prix_unitaire * (1 - remise_pct/100.0)), 2)            AS sous_total,
-           ROUND(SUM(quantite * prix_unitaire * (1 - remise_pct/100.0) * taux_tps), 2) AS tps,
-           ROUND(SUM(quantite * prix_unitaire * (1 - remise_pct/100.0) * taux_tvq), 2) AS tvq
-    FROM lignes_facture GROUP BY facture_id
-), payes AS (
-    SELECT facture_id, ROUND(SUM(montant), 2) AS paye FROM allocations_paiement GROUP BY facture_id
+-- Une ligne par transaction, avec toutes les colonnes calculées du gabarit
+DROP VIEW IF EXISTS v_transactions;
+CREATE VIEW v_transactions AS
+WITH payes AS (
+    SELECT transaction_id, ROUND(SUM(montant),2) AS paye, MAX(date) AS dernier_paiement
+    FROM paiements GROUP BY transaction_id
+), ech_cumul AS (
+    SELECT e.transaction_id, e.date, e.montant,
+           SUM(e.montant) OVER (PARTITION BY e.transaction_id ORDER BY e.date, e.id) AS cumul,
+           COALESCE(p.paye, 0) AS paye
+    FROM echeances e LEFT JOIN payes p ON p.transaction_id = e.transaction_id
+), ech AS (   -- montant prévu jusqu'à la fin du mois courant, et plus vieille échéance non couverte
+    SELECT transaction_id,
+           SUM(CASE WHEN date(date) <= date('now','start of month','+1 month','-1 day') THEN montant ELSE 0 END) AS prevu_fin_mois,
+           SUM(CASE WHEN date(date) <  date('now') THEN montant ELSE 0 END) AS prevu_echu,
+           MIN(CASE WHEN cumul > paye + 0.005 THEN date END) AS echeance_impayee
+    FROM ech_cumul GROUP BY transaction_id
+), suiv AS (
+    SELECT transaction_id, MIN(date_prevue) AS prochain_follow_up
+    FROM suivis WHERE statut = 'a_faire' AND transaction_id IS NOT NULL GROUP BY transaction_id
+), base AS (
+    SELECT t.*, c.nom AS client,
+           COALESCE(p.paye,0.0) AS paye, p.dernier_paiement,
+           ROUND(t.rev - COALESCE(p.paye,0), 2) AS difference,
+           -- Montant prévu d'ici la fin du mois : échéancier s'il existe, sinon tout le REV à la date d'échéance
+           CASE WHEN e.transaction_id IS NOT NULL THEN e.prevu_fin_mois
+                WHEN date(COALESCE(t.date_echeance, t.date_transaction)) <= date('now','start of month','+1 month','-1 day') THEN t.rev
+                ELSE 0 END AS prevu_fin_mois,
+           CASE WHEN e.transaction_id IS NOT NULL THEN e.prevu_echu
+                WHEN date(COALESCE(t.date_echeance, t.date_transaction)) < date('now') THEN t.rev
+                ELSE 0 END AS prevu_echu,
+           -- date due du plus vieux montant non payé
+           CASE WHEN e.transaction_id IS NOT NULL THEN e.echeance_impayee
+                ELSE COALESCE(t.date_echeance, t.date_transaction) END AS prochaine_echeance,
+           s.prochain_follow_up
+    FROM transactions t
+    JOIN clients c ON c.id = t.client_id
+    LEFT JOIN payes p ON p.transaction_id = t.id
+    LEFT JOIN ech   e ON e.transaction_id = t.id
+    LEFT JOIN suiv  s ON s.transaction_id = t.id
 )
-SELECT f.id, f.numero, f.client_id, c.nom AS client, f.abonnement_id,
-       f.date_emission, f.date_echeance, f.statut AS statut_saisi,
-       COALESCE(l.sous_total, 0)                                   AS sous_total,
-       COALESCE(l.tps, 0)                                          AS tps,
-       COALESCE(l.tvq, 0)                                          AS tvq,
-       ROUND(COALESCE(l.sous_total,0)+COALESCE(l.tps,0)+COALESCE(l.tvq,0), 2) AS total,
-       COALESCE(p.paye, 0)                                         AS paye,
-       CASE WHEN f.statut IN ('annulee','brouillon') THEN 0
-            ELSE ROUND(COALESCE(l.sous_total,0)+COALESCE(l.tps,0)+COALESCE(l.tvq,0) - COALESCE(p.paye,0), 2)
-       END                                                         AS solde,
-       CASE WHEN f.statut IN ('annulee','brouillon') THEN 0
-            ELSE MAX(0, CAST(julianday('now') - julianday(f.date_echeance) AS INTEGER))
-       END                                                         AS jours_retard,
-       CASE
-            WHEN f.statut = 'annulee'   THEN 'annulee'
-            WHEN f.statut = 'brouillon' THEN 'brouillon'
-            WHEN COALESCE(p.paye,0) >= ROUND(COALESCE(l.sous_total,0)+COALESCE(l.tps,0)+COALESCE(l.tvq,0), 2) - 0.005 THEN 'payee'
-            WHEN date(f.date_echeance) < date('now') THEN 'en_retard'
-            WHEN COALESCE(p.paye,0) > 0 THEN 'partielle'
-            ELSE 'ouverte'
-       END                                                         AS statut
-FROM factures f
-JOIN clients c ON c.id = f.client_id
-LEFT JOIN lignes l ON l.facture_id = f.id
-LEFT JOIN payes  p ON p.facture_id = f.id;
+SELECT id, nom AS transaction_, client_id, client, type, statut,
+       date_premier_contact, date_transaction, date_echeance, prochaine_echeance, prochain_follow_up,
+       devise, methode, rev,
+       paye                                              AS montant_paye,
+       difference                                        AS difference_rev_paye,
+       ROUND(COALESCE(commission_manuelle, rev * taux_commission), 2) AS montant_commission,
+       CASE WHEN annulee = 1 THEN 0
+            ELSE ROUND(MAX(0, prevu_fin_mois - paye), 2) END AS du_ce_mois,
+       CASE WHEN annulee = 1 THEN 0
+            ELSE ROUND(MAX(0, prevu_echu - paye), 2) END     AS en_retard,
+       CASE WHEN annulee = 0 AND prevu_echu - paye > 0.005
+            THEN CAST(julianday('now') - julianday(prochaine_echeance) AS INTEGER) ELSE 0 END AS jours_retard,
+       taux_commission,
+       ROUND(rev * taux_commission, 2)                   AS commission_rev,
+       ROUND(paye * taux_commission, 2)                  AS commission_collectee,
+       ROUND(COALESCE(commission_manuelle, rev * taux_commission) - paye * taux_commission, 2) AS commission_a_recevoir,
+       CASE WHEN annulee = 1                               THEN 'Annulée'
+            WHEN rev > 0 AND paye >= rev - 0.005           THEN 'Payé'
+            WHEN prevu_echu - paye > 0.005                 THEN 'En retard'
+            WHEN paye > 0                                  THEN 'Partiel'
+            ELSE 'À recevoir' END                          AS etat,
+       dernier_paiement, notes, annulee
+FROM base;
 
--- Ventes et soldes par client (le tableau de bord principal)
-DROP VIEW IF EXISTS v_clients_resume;
-CREATE VIEW v_clients_resume AS
-SELECT c.id, c.nom, c.entreprise, c.statut,
-       COUNT(f.id)                                                     AS nb_factures,
-       ROUND(COALESCE(SUM(CASE WHEN f.statut NOT IN ('annulee','brouillon') THEN f.sous_total END),0),2) AS ventes_avant_taxes,
-       ROUND(COALESCE(SUM(CASE WHEN f.statut NOT IN ('annulee','brouillon') THEN f.total END),0),2)      AS ventes_ttc,
-       ROUND(COALESCE(SUM(f.paye),0),2)                                AS total_paye,
-       ROUND(COALESCE(SUM(f.solde),0),2)                               AS solde_du,
-       ROUND(COALESCE(SUM(CASE WHEN f.statut = 'en_retard' THEN f.solde END),0),2) AS solde_en_retard,
-       MAX(f.date_emission)                                            AS derniere_facture,
-       (SELECT ROUND(COALESCE(SUM(montant),0),2) FROM paiements p WHERE p.client_id = c.id)
-         - (SELECT ROUND(COALESCE(SUM(a.montant),0),2) FROM allocations_paiement a
-              JOIN paiements p ON p.id = a.paiement_id WHERE p.client_id = c.id) AS credit_non_applique,
-       (SELECT MIN(date_prevue) FROM suivis s WHERE s.client_id = c.id AND s.statut IN ('a_faire','en_cours')) AS prochain_suivi
-FROM clients c
-LEFT JOIN v_factures f ON f.client_id = c.id
-GROUP BY c.id;
+-- Résumé par client et par devise (on n'additionne jamais CAD et USD ensemble)
+DROP VIEW IF EXISTS v_clients;
+CREATE VIEW v_clients AS
+SELECT client_id, client, devise,
+       COUNT(*)                                  AS nb_transactions,
+       ROUND(SUM(rev),2)                         AS ventes_rev,
+       ROUND(SUM(montant_paye),2)                AS total_paye,
+       ROUND(SUM(difference_rev_paye),2)         AS solde_du,
+       ROUND(SUM(du_ce_mois),2)                  AS du_ce_mois,
+       ROUND(SUM(en_retard),2)                   AS en_retard,
+       ROUND(SUM(montant_commission),2)          AS commissions,
+       ROUND(SUM(commission_collectee),2)        AS commissions_collectees,
+       MIN(date_premier_contact)                 AS premier_contact,
+       MAX(date_transaction)                     AS derniere_transaction,
+       (SELECT MIN(date_prevue) FROM suivis s WHERE s.client_id = v.client_id AND s.statut='a_faire') AS prochain_follow_up
+FROM v_transactions v
+WHERE annulee = 0
+GROUP BY client_id, devise;
 
--- Vieillissement des comptes à recevoir (aging) par client
-DROP VIEW IF EXISTS v_comptes_recevables;
-CREATE VIEW v_comptes_recevables AS
-SELECT client_id, client,
-       ROUND(SUM(CASE WHEN jours_retard = 0               THEN solde ELSE 0 END),2) AS courant,
-       ROUND(SUM(CASE WHEN jours_retard BETWEEN 1  AND 30 THEN solde ELSE 0 END),2) AS j_1_30,
-       ROUND(SUM(CASE WHEN jours_retard BETWEEN 31 AND 60 THEN solde ELSE 0 END),2) AS j_31_60,
-       ROUND(SUM(CASE WHEN jours_retard BETWEEN 61 AND 90 THEN solde ELSE 0 END),2) AS j_61_90,
-       ROUND(SUM(CASE WHEN jours_retard > 90              THEN solde ELSE 0 END),2) AS j_90_plus,
-       ROUND(SUM(solde),2) AS total_du
-FROM v_factures
-WHERE solde > 0.005
-GROUP BY client_id
-ORDER BY total_du DESC;
+-- Ce qui est dû ce mois-ci (inclut les retards)
+DROP VIEW IF EXISTS v_du_ce_mois;
+CREATE VIEW v_du_ce_mois AS
+SELECT id, transaction_, client, devise, prochaine_echeance, du_ce_mois, en_retard, etat, methode, prochain_follow_up
+FROM v_transactions
+WHERE du_ce_mois > 0.005
+ORDER BY en_retard DESC, prochaine_echeance;
 
--- Ventes par mois (hors annulées / brouillons)
-DROP VIEW IF EXISTS v_ventes_mensuelles;
-CREATE VIEW v_ventes_mensuelles AS
-SELECT strftime('%Y-%m', date_emission) AS mois,
-       COUNT(*)                          AS nb_factures,
-       ROUND(SUM(sous_total),2)          AS ventes_avant_taxes,
-       ROUND(SUM(tps),2)                 AS tps_percue,
-       ROUND(SUM(tvq),2)                 AS tvq_percue,
-       ROUND(SUM(total),2)               AS ventes_ttc,
-       ROUND(SUM(paye),2)                AS encaisse
-FROM v_factures
-WHERE statut NOT IN ('annulee','brouillon')
-GROUP BY mois ORDER BY mois;
+-- Ancienneté des sommes en retard (selon la plus vieille échéance impayée)
+DROP VIEW IF EXISTS v_recevables;
+CREATE VIEW v_recevables AS
+SELECT client, devise,
+       ROUND(SUM(difference_rev_paye - en_retard),2)                                  AS a_venir,
+       ROUND(SUM(CASE WHEN jours_retard BETWEEN 0 AND 30  THEN en_retard ELSE 0 END),2) AS j_1_30,
+       ROUND(SUM(CASE WHEN jours_retard BETWEEN 31 AND 60 THEN en_retard ELSE 0 END),2) AS j_31_60,
+       ROUND(SUM(CASE WHEN jours_retard BETWEEN 61 AND 90 THEN en_retard ELSE 0 END),2) AS j_61_90,
+       ROUND(SUM(CASE WHEN jours_retard > 90              THEN en_retard ELSE 0 END),2) AS j_90_plus,
+       ROUND(SUM(difference_rev_paye),2)                                              AS total_du
+FROM v_transactions
+WHERE annulee = 0 AND difference_rev_paye > 0.005
+GROUP BY client, devise ORDER BY total_du DESC;
 
--- Revenu récurrent mensuel (MRR) normalisé par client
-DROP VIEW IF EXISTS v_revenu_recurrent;
-CREATE VIEW v_revenu_recurrent AS
-SELECT a.client_id, c.nom AS client, COUNT(*) AS nb_abonnements,
-       ROUND(SUM(a.montant * a.quantite *
-           CASE a.frequence
-               WHEN 'hebdomadaire' THEN 52/12.0
-               WHEN 'aux2semaines' THEN 26/12.0
-               WHEN 'mensuel'      THEN 1
-               WHEN 'trimestriel'  THEN 1/3.0
-               WHEN 'semestriel'   THEN 1/6.0
-               WHEN 'annuel'       THEN 1/12.0
-           END), 2) AS revenu_mensuel,
-       MIN(a.prochaine_facturation) AS prochaine_facturation
-FROM abonnements a JOIN clients c ON c.id = a.client_id
-WHERE a.statut = 'actif'
-GROUP BY a.client_id;
+-- Par mois : ventes (REV) signées et argent / commissions réellement encaissés
+DROP VIEW IF EXISTS v_mensuel;
+CREATE VIEW v_mensuel AS
+WITH ventes AS (
+    SELECT strftime('%Y-%m', date_transaction) AS mois, devise,
+           COUNT(*) AS nb, SUM(rev) AS rev, SUM(COALESCE(commission_manuelle, rev*taux_commission)) AS comm
+    FROM transactions WHERE annulee = 0 GROUP BY 1, 2
+), encaisse AS (
+    SELECT strftime('%Y-%m', p.date) AS mois, t.devise,
+           SUM(p.montant) AS paye, SUM(p.montant * t.taux_commission) AS comm_coll
+    FROM paiements p JOIN transactions t ON t.id = p.transaction_id GROUP BY 1, 2
+), cles AS (SELECT mois, devise FROM ventes UNION SELECT mois, devise FROM encaisse)
+SELECT k.mois, k.devise,
+       COALESCE(v.nb,0)                    AS nb_transactions,
+       ROUND(COALESCE(v.rev,0),2)          AS rev,
+       ROUND(COALESCE(v.comm,0),2)         AS commissions_generees,
+       ROUND(COALESCE(e.paye,0),2)         AS encaisse,
+       ROUND(COALESCE(e.comm_coll,0),2)    AS commissions_collectees
+FROM cles k
+LEFT JOIN ventes   v ON v.mois = k.mois AND v.devise = k.devise
+LEFT JOIN encaisse e ON e.mois = k.mois AND e.devise = k.devise
+ORDER BY k.mois, k.devise;
 
--- Abonnements à facturer aujourd'hui (ou en retard de facturation)
-DROP VIEW IF EXISTS v_abonnements_a_facturer;
-CREATE VIEW v_abonnements_a_facturer AS
-SELECT a.*, c.nom AS client
-FROM abonnements a JOIN clients c ON c.id = a.client_id
-WHERE a.statut = 'actif'
-  AND date(a.prochaine_facturation) <= date('now')
-  AND (a.date_fin IS NULL OR date(a.prochaine_facturation) <= date(a.date_fin));
+-- Revenu récurrent mensuel normalisé
+DROP VIEW IF EXISTS v_recurrent;
+CREATE VIEW v_recurrent AS
+SELECT r.client_id, c.nom AS client, r.devise, COUNT(*) AS nb,
+       ROUND(SUM(r.rev * CASE r.frequence
+            WHEN 'hebdomadaire' THEN 52/12.0 WHEN 'aux2semaines' THEN 26/12.0
+            WHEN 'mensuel' THEN 1 WHEN 'trimestriel' THEN 1/3.0
+            WHEN 'semestriel' THEN 1/6.0 WHEN 'annuel' THEN 1/12.0 END), 2) AS rev_mensuel,
+       ROUND(SUM(r.rev * r.taux_commission * CASE r.frequence
+            WHEN 'hebdomadaire' THEN 52/12.0 WHEN 'aux2semaines' THEN 26/12.0
+            WHEN 'mensuel' THEN 1 WHEN 'trimestriel' THEN 1/3.0
+            WHEN 'semestriel' THEN 1/6.0 WHEN 'annuel' THEN 1/12.0 END), 2) AS commission_mensuelle,
+       MIN(r.prochaine_date) AS prochaine_date
+FROM recurrences r JOIN clients c ON c.id = r.client_id
+WHERE r.actif = 1
+GROUP BY r.client_id, r.devise;
 
--- Liste de suivis à faire (en retard en premier)
-DROP VIEW IF EXISTS v_suivis_a_faire;
-CREATE VIEW v_suivis_a_faire AS
-SELECT s.id, s.date_prevue, s.priorite, s.type, c.nom AS client, s.sujet, s.facture_id,
-       CASE WHEN date(s.date_prevue) <  date('now') THEN 'en_retard'
-            WHEN date(s.date_prevue) =  date('now') THEN 'aujourdhui'
-            WHEN date(s.date_prevue) <= date('now','+7 days') THEN 'cette_semaine'
-            ELSE 'plus_tard' END AS echeance
+-- Suivis à faire
+DROP VIEW IF EXISTS v_suivis;
+CREATE VIEW v_suivis AS
+SELECT s.id, s.date_prevue, s.priorite, s.type, c.nom AS client, t.nom AS transaction_, s.sujet,
+       CASE WHEN date(s.date_prevue) <  date('now') THEN 'en retard'
+            WHEN date(s.date_prevue) =  date('now') THEN 'aujourd''hui'
+            WHEN date(s.date_prevue) <= date('now','+7 days') THEN 'cette semaine'
+            ELSE 'plus tard' END AS quand
 FROM suivis s JOIN clients c ON c.id = s.client_id
-WHERE s.statut IN ('a_faire','en_cours')
-ORDER BY CASE s.priorite WHEN 'haute' THEN 0 WHEN 'normale' THEN 1 ELSE 2 END,
-         s.date_prevue IS NULL, s.date_prevue;
+LEFT JOIN transactions t ON t.id = s.transaction_id
+WHERE s.statut = 'a_faire'
+ORDER BY s.date_prevue IS NULL, date(s.date_prevue),
+         CASE s.priorite WHEN 'haute' THEN 0 WHEN 'normale' THEN 1 ELSE 2 END;
