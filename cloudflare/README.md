@@ -19,7 +19,7 @@ Une seule fois, dans Cloudflare :
 
 Puis :
 ```bash
-export CLOUDFLARE_API_TOKEN=...  CLOUDFLARE_ACCOUNT_ID=...  EMAIL_AUTORISE=ton@courriel.com
+export CLOUDFLARE_API_TOKEN=...  EMAIL_AUTORISE=ton@courriel.com   # CLOUDFLARE_ACCOUNT_ID facultatif
 ./cloudflare/deployer.sh
 ```
 Le script crée la base D1, le projet Pages et la protection Access, puis met le site en ligne. Tu peux le relancer à chaque modification du site : il réutilise ce qui existe et ne touche jamais aux données.

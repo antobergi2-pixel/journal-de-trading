@@ -5,18 +5,11 @@
 # Variables requises :
 #   CLOUDFLARE_API_TOKEN   jeton avec : D1 (Edit), Cloudflare Pages (Edit),
 #                          Access: Apps and Policies (Edit), Access: Organizations (Read)
-#   CLOUDFLARE_ACCOUNT_ID  identifiant du compte Cloudflare
+#   CLOUDFLARE_ACCOUNT_ID  identifiant du compte (facultatif : trouvé avec le jeton s'il n'y a qu'un compte)
 #   EMAIL_AUTORISE         la seule adresse courriel qui pourra ouvrir le site
 set -euo pipefail
 ici="$(cd "$(dirname "$0")" && pwd)"
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN manquant}"
-: "${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID manquant}"
-: "${EMAIL_AUTORISE:?EMAIL_AUTORISE manquant}"
-export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WRANGLER_SEND_METRICS=false
-PROJET="suivi-commissions"
-API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
-WR=(npx --yes wrangler@3.99.0)
-
 cf() { curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "content-type: application/json" "$@"; }
 # champ JSON : lit l'entrée standard, affiche la valeur au chemin donné (vide si absente)
 champ() { python3 -c 'import json,sys
@@ -29,6 +22,19 @@ verifie() { python3 -c 'import json,sys
 d=json.load(sys.stdin)
 if not d.get("success"):
     sys.exit("Erreur Cloudflare (" + sys.argv[1] + ") : " + "; ".join(e.get("message","?") for e in d.get("errors",[])))' "$1"; }
+
+: "${EMAIL_AUTORISE:?EMAIL_AUTORISE manquant}"
+if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+  comptes=$(cf "https://api.cloudflare.com/client/v4/accounts")
+  echo "$comptes" | verifie "lecture des comptes"
+  nb=$(echo "$comptes" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("result") or []))')
+  [ "$nb" = "1" ] || { echo "Le jeton donne accès à $nb comptes : indique CLOUDFLARE_ACCOUNT_ID." >&2; exit 1; }
+  CLOUDFLARE_ACCOUNT_ID=$(echo "$comptes" | champ result.0.id)
+fi
+export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WRANGLER_SEND_METRICS=false
+PROJET="suivi-commissions"
+API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
+WR=(npx --yes wrangler@3.99.0)
 
 echo "1/6 Base de données D1"
 id_db=$(cf "$API/d1/database?name=$PROJET" | champ result.0.uuid)

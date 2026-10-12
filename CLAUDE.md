@@ -37,6 +37,6 @@ L'utilisateur remplit lui-même ses données sur le site : https://claude.ai/art
 
 L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout est dans `cloudflare/` (voir son README) :
 - `site/index.html` reste la source unique. `cloudflare/construire.sh` l'emballe avec `<meta name="hebergement" content="cloudflare">`, ce qui fait passer la page sur l'API `/api` (base D1) au lieu de la base claude.ai.
-- Mise en ligne : `cloudflare/deployer.sh`, avec CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID et EMAIL_AUTORISE dans l'environnement. Le réseau de l'environnement doit autoriser `api.cloudflare.com`.
+- Mise en ligne : `cloudflare/deployer.sh`, avec CLOUDFLARE_API_TOKEN et EMAIL_AUTORISE dans l'environnement (CLOUDFLARE_ACCOUNT_ID facultatif). Le réseau de l'environnement doit autoriser `api.cloudflare.com`.
 - Ne jamais committer l'adresse courriel ni les identifiants Cloudflare : le dépôt est public. Le script les écrit seulement dans `cloudflare/.deploiement/`, qui est ignoré par Git.
 - Après toute modification de `site/index.html` : republier l'artifact claude.ai ET relancer `deployer.sh`.
