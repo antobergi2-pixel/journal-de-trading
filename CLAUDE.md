@@ -32,3 +32,11 @@ L'utilisateur remplit lui-même ses données sur le site : https://claude.ai/art
 - Les règles d'accès (lecture et écriture au niveau `admin`) rendent les données invisibles à toute personne qui n'est pas propriétaire ou éditeur, même si le lien est partagé.
 - Les montants calculés (payé, différence, dû ce mois, commissions, État) ne sont jamais stockés : le site les calcule à partir des ventes, des plans et des paiements.
 - La copie de sécurité se fait depuis l'onglet Sauvegarde du site (fichier .json téléchargé). L'outil en ligne de commande de `crm/` reste disponible, mais il a sa propre base, distincte de celle du site.
+
+## Version Cloudflare
+
+L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout est dans `cloudflare/` (voir son README) :
+- `site/index.html` reste la source unique. `cloudflare/construire.sh` l'emballe avec `<meta name="hebergement" content="cloudflare">`, ce qui fait passer la page sur l'API `/api` (base D1) au lieu de la base claude.ai.
+- Mise en ligne : `cloudflare/deployer.sh`, avec CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID et EMAIL_AUTORISE dans l'environnement. Le réseau de l'environnement doit autoriser `api.cloudflare.com`.
+- Ne jamais committer l'adresse courriel ni les identifiants Cloudflare : le dépôt est public. Le script les écrit seulement dans `cloudflare/.deploiement/`, qui est ignoré par Git.
+- Après toute modification de `site/index.html` : republier l'artifact claude.ai ET relancer `deployer.sh`.

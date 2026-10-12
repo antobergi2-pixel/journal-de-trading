@@ -48,6 +48,8 @@
 }
 
 * { box-sizing: border-box; }
+body { margin: 0; }
+[hidden] { display: none !important; }
 body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--f-body); }
 .wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 0 64px; }
 h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -.01em; }
@@ -236,6 +238,8 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
    Tout le reste (payé, différence, dû ce mois, commissions, État) est calculé.
    ===================================================================== */
 const COLS = ["clients", "ventes", "paiements", "suivis"];
+// La même page tourne sur claude.ai (base de l'artifact) et sur Cloudflare (base D1, via /api).
+const HEBERGE = document.querySelector('meta[name="hebergement"]')?.content === "cloudflare" ? "cloudflare" : "claude";
 const S = { clients: new Map(), ventes: new Map(), paiements: new Map(), suivis: new Map(),
             loaded: new Set(), db: null, dbState: "attente", tab: "tableau", filtre: { q: "", etat: "" } };
 const TAUX_DEFAUT = 5;
@@ -365,10 +369,10 @@ function render() {
   }
 }
 function bannerHtml() {
-  if (S.dbState === "absent") return `<div class="banner bad"><strong>L'enregistrement en ligne n'est pas disponible ici.</strong> Ouvre cette page depuis claude.ai en étant connecté pour ajouter et retrouver tes données.</div>`;
+  if (S.dbState === "absent") return `<div class="banner bad"><strong>L'enregistrement en ligne n'est pas disponible ici.</strong> ${HEBERGE === "cloudflare" ? "Recharge la page. Si le problème continue, vérifie ta connexion Internet." : "Ouvre cette page depuis claude.ai en étant connecté pour ajouter et retrouver tes données."}</div>`;
   if (S.dbState === "erreur") return `<div class="banner bad"><strong>La connexion à la base a été interrompue.</strong> Recharge la page ; ce qui a déjà été enregistré n'est pas perdu.</div>`;
   const last = lsGet("derniereSauvegarde");
-  if (S.dbState === "ok" && S.ventes.size + S.clients.size > 0 && (!last || (Date.now() - Date.parse(last)) > 14 * 864e5))
+  if (S.dbState === "ok" && S.ventes.size + S.clients.size > 0 && (!last || (Date.now() - Date.parse(last)) > 7 * 864e5))
     return `<div class="banner">Tes données sont enregistrées en ligne automatiquement. Pour avoir aussi une copie chez toi, <button class="btn link" data-action="tab" data-tab="sauvegarde">télécharge une sauvegarde</button>${last ? ` (dernière : ${fmtDate(last.slice(0, 10))})` : ""}.</div>`;
   return "";
 }
@@ -533,7 +537,7 @@ function viewSauvegarde() {
   const last = lsGet("derniereSauvegarde");
   return `<section style="display:grid;gap:16px"><h2>Sauvegarde</h2>
     <div class="panel panel-pad" style="display:grid;gap:8px"><h3>Enregistrement automatique</h3>
-      <p class="muted" style="margin:0;max-width:66ch">Chaque client, vente, paiement et suivi est enregistré en ligne dès que tu cliques sur Enregistrer. Tu le retrouves sur n'importe quel appareil où tu ouvres cette page en étant connecté à claude.ai. Seul toi y as accès.</p>
+      <p class="muted" style="margin:0;max-width:66ch">Chaque client, vente, paiement et suivi est enregistré en ligne dès que tu cliques sur Enregistrer. Tu le retrouves sur n'importe quel appareil où tu ouvres cette page${HEBERGE === "cloudflare" ? " et te connectes avec ton adresse courriel" : " en étant connecté à claude.ai"}. Seul toi y as accès.</p>
       <dl class="facts" style="margin-top:6px"><div><dt>Clients</dt><dd class="num">${S.clients.size}</dd></div><div><dt>Ventes</dt><dd class="num">${S.ventes.size}</dd></div><div><dt>Paiements</dt><dd class="num">${S.paiements.size}</dd></div><div><dt>Suivis</dt><dd class="num">${S.suivis.size}</dd></div></dl></div>
     <div class="panel panel-pad" style="display:grid;gap:10px"><h3>Copie sur ton ordinateur</h3>
       <p class="muted" style="margin:0;max-width:66ch">Télécharge une sauvegarde complète de temps en temps. Elle permet de tout restaurer ici même si quelque chose était supprimé par erreur.${last ? ` Dernière sauvegarde : ${esc(fmtDate(last.slice(0, 10)))}.` : ""}</p>
@@ -855,6 +859,12 @@ function snapshotData() {
 }
 async function telecharger(filename, data, label) {
   let dls = null;
+  if (HEBERGE === "cloudflare") {
+    const url = URL.createObjectURL(new Blob([data], { type: filename.endsWith(".csv") ? "text/csv" : "application/json" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast(label); return true;
+  }
   try { dls = await window.claude?.use?.("downloads"); } catch (_) {}
   if (!dls) return toast("Le téléchargement n'est pas disponible dans cette vue.", true);
   try { await dls.save({ filename, data }); toast(label); return true; }
@@ -959,12 +969,72 @@ document.addEventListener("change", e => {
   if (e.target.id === "restore-file" && e.target.files[0]) lireRestauration(e.target.files[0]);
 });
 
+/* ---------- Base sur Cloudflare (D1) : même interface que la base claude.ai.
+   Les écritures s'appliquent tout de suite à l'écran, puis partent au serveur ;
+   la page se resynchronise au retour sur l'onglet et chaque minute. */
+function restDb() {
+  const cache = Object.fromEntries(COLS.map(c => [c, new Map()])), ecoutes = {}, erreurs = [];
+  let charge = false, enCours = null;
+  const snap = c => ({ docs: [...cache[c].entries()].map(([id, d]) => ({ id, exists: true, data: () => structuredClone(d) })) });
+  const diffuse = c => (ecoutes[c] || []).forEach(fn => fn(snap(c)));
+  const nouvelId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  async function req(method, chemin, corps) {
+    let r;
+    try { r = await fetch("/api" + chemin, { method, credentials: "same-origin", headers: corps ? { "content-type": "application/json" } : {}, body: corps ? JSON.stringify(corps) : undefined }); }
+    catch (_) { throw { code: "unavailable", message: "réseau" }; }
+    if (r.status === 401 || r.status === 403) throw { code: "revoked", message: "accès refusé" };
+    if (r.status === 413) throw { code: "quota_exceeded", message: "trop volumineux" };
+    if (!r.ok) throw { code: r.status === 400 ? "invalid_argument" : "unavailable", message: "HTTP " + r.status };
+    return r.status === 204 ? null : r.json();
+  }
+  function rafraichir() {
+    return enCours ||= (async () => {
+      try {
+        const tout = await req("GET", "/data");
+        for (const c of COLS) cache[c] = new Map((tout[c] || []).map(d => [d.id, d.data]));
+        charge = true; COLS.forEach(diffuse);
+      } catch (e) { if (e.code === "revoked") erreurs.forEach(f => f(e)); }
+      finally { enCours = null; }
+    })();
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) rafraichir(); });
+  setInterval(() => { if (!document.hidden) rafraichir(); }, 60000);
+  async function ecrire(c, id, local, appel) {
+    const avant = cache[c].get(id);
+    local(); diffuse(c);
+    try { await appel(); }
+    catch (e) { avant ? cache[c].set(id, avant) : cache[c].delete(id); diffuse(c); throw e; }
+  }
+  return {
+    collection: c => ({
+      doc: (id = nouvelId()) => {
+        const url = `/${c}/${encodeURIComponent(id)}`;
+        return {
+          id,
+          set: data => ecrire(c, id, () => cache[c].set(id, structuredClone(data)), () => req("PUT", url, data)),
+          update: data => {
+            if (!cache[c].has(id)) return Promise.reject({ code: "invalid_argument", message: "document absent" });
+            return ecrire(c, id, () => cache[c].set(id, { ...cache[c].get(id), ...structuredClone(data) }), () => req("PATCH", url, data));
+          },
+          delete: () => ecrire(c, id, () => cache[c].delete(id), () => req("DELETE", url)),
+        };
+      },
+      onSnapshot(suivant, erreur) {
+        (ecoutes[c] ||= []).push(suivant); if (erreur) erreurs.push(erreur);
+        if (charge) suivant(snap(c)); else rafraichir();
+        return () => { ecoutes[c] = ecoutes[c].filter(f => f !== suivant); };
+      },
+    }),
+  };
+}
+
 /* ---------- Démarrage */
 const saved = lsGet("onglet"); if (saved && ["tableau", "ventes", "clients", "suivis", "sauvegarde"].includes(saved)) S.tab = saved;
 render();
 (async () => {
   let db = null;
-  try { db = window.claude?.use ? await window.claude.use("db") : null; } catch (_) {}
+  if (HEBERGE === "cloudflare") db = restDb();
+  else try { db = window.claude?.use ? await window.claude.use("db") : null; } catch (_) {}
   if (!db) { S.dbState = "absent"; render(); return; }
   S.db = db;
   for (const c of COLS) {
