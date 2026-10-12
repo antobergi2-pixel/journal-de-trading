@@ -6,8 +6,9 @@
 --  DU THIS MONTH, Commission 5% REV, Commission 5% REV collecté, Notes,
 --  Devise, Méthode, État
 --
+--  Le taux de commission (5 % par défaut) se règle vente par vente.
 --  Les colonnes calculées du gabarit (Différence, DU THIS MONTH,
---  Commission 5 %, Commission collectée, État) ne sont PAS saisies :
+--  Commission, Commission collectée, État) ne sont PAS saisies :
 --  elles sont produites par les vues ci-dessous.
 --  Moteur : SQLite 3
 -- =====================================================================
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS recurrences (
     type                TEXT,
     rev                 REAL    NOT NULL CHECK (rev >= 0),
     devise              TEXT    NOT NULL DEFAULT 'CAD',
-    taux_commission     REAL    NOT NULL DEFAULT 0.05,
+    taux_commission     REAL    NOT NULL DEFAULT 0.05 CHECK (taux_commission BETWEEN 0 AND 1),
     methode             TEXT,
     frequence           TEXT    NOT NULL DEFAULT 'mensuel'
                         CHECK (frequence IN ('hebdomadaire','aux2semaines','mensuel','trimestriel','semestriel','annuel')),
@@ -66,8 +67,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     date_transaction    TEXT    NOT NULL DEFAULT (date('now')),
     date_echeance       TEXT,                             -- date où le paiement est dû
     rev                 REAL    NOT NULL DEFAULT 0 CHECK (rev >= 0),  -- « REV »
-    taux_commission     REAL    NOT NULL DEFAULT 0.05,    -- 5 % par défaut
-    commission_manuelle REAL,                             -- « MONTANT DE LA COMMISSION » si différent de taux × REV
+    -- Taux de commission propre à CETTE vente (0.05 = 5 %). Modifiable vente par vente ;
+    -- la commission générée (taux × REV) et collectée (taux × payé) suivent ce taux.
+    taux_commission     REAL    NOT NULL DEFAULT 0.05 CHECK (taux_commission BETWEEN 0 AND 1),
     devise              TEXT    NOT NULL DEFAULT 'CAD',   -- « Devise »
     methode             TEXT,                             -- « Méthode » prévue
     annulee             INTEGER NOT NULL DEFAULT 0 CHECK (annulee IN (0,1)),
@@ -189,7 +191,7 @@ SELECT id, nom AS transaction_, client_id, client, type, statut,
        mensualite, nb_versements, versements_restants, fin_plan,
        paye                                              AS montant_paye,
        difference                                        AS difference_rev_paye,
-       ROUND(COALESCE(commission_manuelle, rev * taux_commission), 2) AS montant_commission,
+       ROUND(rev * taux_commission, 2)                   AS montant_commission,
        CASE WHEN annulee = 1 THEN 0
             ELSE ROUND(MAX(0, prevu_fin_mois - paye), 2) END AS du_ce_mois,
        CASE WHEN annulee = 1 THEN 0
@@ -197,9 +199,10 @@ SELECT id, nom AS transaction_, client_id, client, type, statut,
        CASE WHEN annulee = 0 AND prevu_echu - paye > 0.005
             THEN CAST(julianday('now') - julianday(prochaine_echeance) AS INTEGER) ELSE 0 END AS jours_retard,
        taux_commission,
+       ROUND(taux_commission * 100, 2)                   AS taux_pct,
        ROUND(rev * taux_commission, 2)                   AS commission_rev,
        ROUND(paye * taux_commission, 2)                  AS commission_collectee,
-       ROUND(COALESCE(commission_manuelle, rev * taux_commission) - paye * taux_commission, 2) AS commission_a_recevoir,
+       ROUND((rev - paye) * taux_commission, 2)         AS commission_a_recevoir,
        CASE WHEN annulee = 1                               THEN 'Annulée'
             WHEN rev > 0 AND paye >= rev - 0.005           THEN 'Payé'
             WHEN prevu_echu - paye > 0.005                 THEN 'En retard'
@@ -257,6 +260,8 @@ SELECT client_id, client, devise,
        ROUND(SUM(en_retard),2)                   AS en_retard,
        ROUND(SUM(montant_commission),2)          AS commissions,
        ROUND(SUM(commission_collectee),2)        AS commissions_collectees,
+       ROUND(SUM(commission_a_recevoir),2)       AS commissions_a_recevoir,
+       ROUND(100.0 * SUM(montant_commission) / NULLIF(SUM(rev),0), 2) AS taux_moyen_pct,
        MIN(date_premier_contact)                 AS premier_contact,
        MAX(date_transaction)                     AS derniere_transaction,
        (SELECT MIN(date_prevue) FROM suivis s WHERE s.client_id = v.client_id AND s.statut='a_faire') AS prochain_follow_up
@@ -291,7 +296,7 @@ DROP VIEW IF EXISTS v_mensuel;
 CREATE VIEW v_mensuel AS
 WITH ventes AS (
     SELECT strftime('%Y-%m', date_transaction) AS mois, devise,
-           COUNT(*) AS nb, SUM(rev) AS rev, SUM(COALESCE(commission_manuelle, rev*taux_commission)) AS comm
+           COUNT(*) AS nb, SUM(rev) AS rev, SUM(rev*taux_commission) AS comm
     FROM transactions WHERE annulee = 0 GROUP BY 1, 2
 ), encaisse AS (
     SELECT strftime('%Y-%m', p.date) AS mois, t.devise,

@@ -20,6 +20,7 @@ Saisir
     python crm.py payer TRANSACTION_ID MONTANT [--methode Interac] [--date AAAA-MM-JJ]
     python crm.py suivi "Client" "Sujet" --date AAAA-MM-JJ [--transaction ID] [--tous-les 30]
     python crm.py fait SUIVI_ID [--resultat "..."]
+    python crm.py taux TRANSACTION_ID 7         change le taux de commission d'une vente (en %)
 
 Automatiser (à lancer chaque jour ou chaque semaine)
     python crm.py generer             crée les transactions des récurrences arrivées à échéance
@@ -40,6 +41,7 @@ from pathlib import Path
 ICI = Path(__file__).resolve().parent
 SCHEMA = ICI / "schema.sql"
 DB_DEFAUT = ICI / "crm.db"
+TAUX_DEFAUT = 0.05   # commission par défaut : 5 %
 
 # Colonnes exactes du gabarit -> colonnes de v_transactions
 GABARIT = [
@@ -60,6 +62,7 @@ GABARIT = [
     ("Devise", "devise"),
     ("Méthode", "methode"),
     ("État", "etat"),
+    ("Taux commission", "taux_pct"),   # colonne ajoutée : taux propre à chaque vente
 ]
 
 
@@ -89,6 +92,27 @@ def afficher(con, sql, params=()):
 # ----------------------------------------------------------------------
 # Lecture tolérante des montants et des dates (formats Notion / Excel / FR / EN)
 # ----------------------------------------------------------------------
+def lire_taux(txt):
+    """Taux de commission saisi en % (« 7 », « 7,5 % ») ou en décimal (« 0.07 ») -> 0.07"""
+    if txt is None or str(txt).strip() == "":
+        return None
+    v = lire_montant(txt)
+    if v is None:
+        v = float(str(txt).replace("%", "").replace(",", ".").strip())
+    if v > 1:
+        v = v / 100
+    if not 0 <= v <= 1:
+        raise ValueError(f"taux de commission invalide : {txt}")
+    return round(v, 6)
+
+
+def taux_arg(txt):
+    try:
+        return lire_taux(txt)
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError(f"taux invalide : {txt!r} (ex. 5, 7.5, 7,5 %)")
+
+
 def lire_montant(txt):
     if txt is None:
         return None
@@ -167,14 +191,18 @@ def client_id(con, nom_ou_id, creer=True):
 
 def ajouter_transaction(con, client, rev, nom=None, type_=None, statut="en cours", devise="CAD",
                         methode=None, date_tx=None, echeance=None, premier_contact=None,
-                        taux=0.05, commission=None, notes=None, recurrence_id=None, follow_up=None):
+                        taux=None, commission=None, notes=None, recurrence_id=None, follow_up=None):
+    """`taux` : taux de commission de la vente (défaut 5 %). `commission` : montant fixe, converti en taux."""
     cid = client_id(con, client)
+    if commission is not None and rev > 0:
+        taux = commission / rev
+    taux = TAUX_DEFAUT if taux is None else taux
     date_tx = date_tx or date.today().isoformat()
     tid = con.execute(
         "INSERT INTO transactions (nom, client_id, recurrence_id, type, statut, date_premier_contact, date_transaction, "
-        "date_echeance, rev, taux_commission, commission_manuelle, devise, methode, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "date_echeance, rev, taux_commission, devise, methode, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (nom or f"{client} {date_tx}", cid, recurrence_id, type_, statut or "en cours", premier_contact, date_tx,
-         echeance, rev, taux, commission, (devise or "CAD").upper(), methode, notes)).lastrowid
+         echeance, rev, taux, (devise or "CAD").upper(), methode, notes)).lastrowid
     if follow_up:
         con.execute("INSERT INTO suivis (client_id, transaction_id, sujet, date_prevue) VALUES (?,?,?,?)",
                     (cid, tid, f"Follow up : {nom or client}", follow_up))
@@ -253,7 +281,9 @@ def importer(con, fichier):
                 con, client or "(sans nom)", rev, nom=nom, type_=col(ligne, "Type"), statut=col(ligne, "Statut"),
                 devise=col(ligne, "Devise"), methode=col(ligne, "Méthode"), premier_contact=contact,
                 date_tx=contact, notes=col(ligne, "Notes"),
-                commission=comm if comm is not None and abs(comm - rev * 0.05) > 0.01 else None,
+                taux=lire_taux(col(ligne, "Taux commission")),
+                commission=comm if col(ligne, "Taux commission") is None and comm is not None
+                           and abs(comm - rev * TAUX_DEFAUT) > 0.01 else None,
                 follow_up=lire_date(col(ligne, "Date de follow up")))
             if paye > 0:
                 con.execute("INSERT INTO paiements (transaction_id, date, montant, methode, notes) VALUES (?,?,?,?,?)",
@@ -263,8 +293,8 @@ def importer(con, fichier):
             mensualite = lire_montant(col(ligne, "DU THIS MONTH"))
             if mensualite and mensualite > 0 and rev > 0:
                 deja = int((paye + 0.005) // mensualite)
-                jour = date.fromisoformat(contact).day if contact else 1
-                # même jour chaque mois (jour du premier contact), plafonné au 28 pour exister dans tous les mois
+                jour = date.fromisoformat(contact).day if contact else date.today().day
+                # même jour chaque mois (jour du premier contact, sinon aujourd'hui), plafonné au 28
                 debut = ajouter_mois(date.today().replace(day=min(jour, 28)), -deja)
                 plans += 1
                 creer_echeancier(con, tid, debut, mensualite=mensualite)
@@ -282,6 +312,8 @@ def exporter(con, fichier):
         w.writerow([h for h, _ in GABARIT])
         n = 0
         for r in rows:
+            r = list(r)
+            r[-1] = f"{r[-1]:g}%"
             w.writerow(["" if v is None else v for v in r])
             n += 1
     return n
@@ -328,8 +360,8 @@ def main():
     s.add_argument("--date", help="date de la transaction (défaut : aujourd'hui)")
     s.add_argument("--echeance", help="date où le paiement est dû")
     s.add_argument("--premier-contact"); s.add_argument("--follow-up")
-    s.add_argument("--taux", type=float, default=0.05, help="taux de commission (défaut 0.05)")
-    s.add_argument("--commission", type=float, help="montant de commission fixe (remplace taux × REV)")
+    s.add_argument("--taux", type=taux_arg, help="taux de commission de cette vente en %% (défaut 5), ex. 7 ou 7.5")
+    s.add_argument("--commission", type=float, help="montant de commission fixe ; le taux est calculé = montant / REV")
     s.add_argument("--versements", type=int, help="plan de paiement : N versements mensuels")
     s.add_argument("--mensualite", type=float, help="plan de paiement : versements de ce montant")
     s.add_argument("--premier-versement", help="date du 1er versement (défaut : --echeance ou --date)")
@@ -348,6 +380,10 @@ def main():
     s.add_argument("--tous-les", type=int, help="répéter tous les N jours")
 
     s = sp.add_parser("fait"); s.add_argument("suivi_id", type=int); s.add_argument("--resultat")
+    s = sp.add_parser("taux", help="changer le taux de commission d'une vente")
+    s.add_argument("transaction_id", type=int)
+    s.add_argument("valeur", type=taux_arg, nargs="?", help="nouveau taux en %%, ex. 7 ou 3.5")
+    s.add_argument("--commission", type=float, help="ou : montant de commission voulu ; le taux est calculé")
     s = sp.add_parser("plan", help="détail du plan de paiement d'une transaction")
     s.add_argument("transaction_id", type=int)
     s = sp.add_parser("echeancier", help="(re)crée le plan de paiement d'une transaction existante")
@@ -366,11 +402,12 @@ def main():
         demo(con); print("Données d'exemple ajoutées.")
     elif c == "transactions":
         afficher(con, "SELECT id, transaction_, client, statut, devise, rev, mensualite, versements_restants AS restants, "
-                      "montant_paye, difference_rev_paye, du_ce_mois, montant_commission, commission_collectee, etat, prochain_follow_up "
+                      "montant_paye, difference_rev_paye, du_ce_mois, taux_pct, montant_commission, commission_collectee, etat, prochain_follow_up "
                       "FROM v_transactions ORDER BY date_transaction, id")
     elif c == "clients":
         afficher(con, "SELECT client, devise, nb_transactions, ventes_rev, total_paye, solde_du, du_ce_mois, en_retard, "
-                      "commissions, commissions_collectees, prochain_follow_up FROM v_clients ORDER BY solde_du DESC")
+                      "taux_moyen_pct, commissions, commissions_collectees, commissions_a_recevoir, "
+                      "prochain_follow_up FROM v_clients ORDER BY solde_du DESC")
     elif c == "du":
         afficher(con, "SELECT * FROM v_du_ce_mois")
         for r in con.execute("SELECT devise, ROUND(SUM(du_ce_mois),2) t FROM v_du_ce_mois GROUP BY devise"):
@@ -388,6 +425,24 @@ def main():
                       "FROM v_echeances WHERE etat IN ('En retard','Ce mois') ORDER BY date, client")
     elif c == "previsions":
         afficher(con, "SELECT * FROM v_previsions")
+    elif c == "taux":
+        tx = con.execute("SELECT rev, taux_commission, devise FROM transactions WHERE id=?", (a.transaction_id,)).fetchone()
+        if not tx:
+            sys.exit("Transaction introuvable.")
+        if a.commission is not None:
+            if not tx["rev"]:
+                sys.exit("REV à 0 : impossible de déduire un taux.")
+            nouveau = a.commission / tx["rev"]
+        elif a.valeur is not None:
+            nouveau = a.valeur
+        else:
+            sys.exit("Indique un taux (ex. 7) ou --commission MONTANT.")
+        if not 0 <= nouveau <= 1:
+            sys.exit("Le taux doit être entre 0 et 100 %.")
+        con.execute("UPDATE transactions SET taux_commission=? WHERE id=?", (nouveau, a.transaction_id))
+        con.commit()
+        print(f"Taux : {tx['taux_commission']*100:g} % -> {nouveau*100:.4g} %  "
+              f"(commission : {tx['rev']*nouveau:.2f} {tx['devise']})")
     elif c == "plan":
         afficher(con, "SELECT versement, date, devise, montant, paye, reste, etat FROM v_echeances "
                       "WHERE transaction_id=? ORDER BY date", (a.transaction_id,))
@@ -406,7 +461,9 @@ def main():
             rid = con.execute(
                 "INSERT INTO recurrences (client_id, description, type, rev, devise, taux_commission, methode, frequence, "
                 "delai_paiement_jours, date_debut, date_fin, prochaine_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (client_id(con, a.client), a.nom or a.client, a.type, a.rev, a.devise.upper(), a.taux, a.methode,
+                (client_id(con, a.client), a.nom or a.client, a.type, a.rev, a.devise.upper(),
+                 (a.commission / a.rev if a.commission is not None and a.rev else a.taux if a.taux is not None else TAUX_DEFAUT),
+                 a.methode,
                  a.recurrent, a.delai, debut, a.fin, debut)).lastrowid
             con.commit()
             print(f"Récurrence #{rid} créée ; {generer_recurrences(con)} transaction(s) générée(s).")
