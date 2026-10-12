@@ -152,7 +152,11 @@ WITH payes AS (
     SELECT transaction_id,
            SUM(CASE WHEN date(date) <= date('now','start of month','+1 month','-1 day') THEN montant ELSE 0 END) AS prevu_fin_mois,
            SUM(CASE WHEN date(date) <  date('now') THEN montant ELSE 0 END) AS prevu_echu,
-           MIN(CASE WHEN cumul > paye + 0.005 THEN date END) AS echeance_impayee
+           MIN(CASE WHEN cumul > paye + 0.005 THEN date END) AS echeance_impayee,
+           COUNT(*)                                          AS nb_versements,
+           SUM(CASE WHEN cumul > paye + 0.005 THEN 1 ELSE 0 END) AS versements_restants,
+           MAX(montant)                                      AS mensualite,
+           MAX(date)                                         AS fin_plan
     FROM ech_cumul GROUP BY transaction_id
 ), suiv AS (
     SELECT transaction_id, MIN(date_prevue) AS prochain_follow_up
@@ -171,6 +175,7 @@ WITH payes AS (
            -- date due du plus vieux montant non payé
            CASE WHEN e.transaction_id IS NOT NULL THEN e.echeance_impayee
                 ELSE COALESCE(t.date_echeance, t.date_transaction) END AS prochaine_echeance,
+           e.nb_versements, e.versements_restants, e.mensualite, e.fin_plan,
            s.prochain_follow_up
     FROM transactions t
     JOIN clients c ON c.id = t.client_id
@@ -181,6 +186,7 @@ WITH payes AS (
 SELECT id, nom AS transaction_, client_id, client, type, statut,
        date_premier_contact, date_transaction, date_echeance, prochaine_echeance, prochain_follow_up,
        devise, methode, rev,
+       mensualite, nb_versements, versements_restants, fin_plan,
        paye                                              AS montant_paye,
        difference                                        AS difference_rev_paye,
        ROUND(COALESCE(commission_manuelle, rev * taux_commission), 2) AS montant_commission,
@@ -201,6 +207,43 @@ SELECT id, nom AS transaction_, client_id, client, type, statut,
             ELSE 'À recevoir' END                          AS etat,
        dernier_paiement, notes, annulee
 FROM base;
+
+-- Plan de paiement détaillé : chaque versement mensuel, avec la part déjà couverte
+-- par les paiements (appliqués du plus vieux versement au plus récent)
+DROP VIEW IF EXISTS v_echeances;
+CREATE VIEW v_echeances AS
+WITH payes AS (
+    SELECT transaction_id, SUM(montant) AS paye FROM paiements GROUP BY transaction_id
+), c AS (
+    SELECT e.id, e.transaction_id, e.date, e.montant,
+           ROW_NUMBER() OVER (PARTITION BY e.transaction_id ORDER BY e.date, e.id) AS no,
+           COUNT(*)     OVER (PARTITION BY e.transaction_id)                       AS nb,
+           SUM(e.montant) OVER (PARTITION BY e.transaction_id ORDER BY e.date, e.id) AS cumul,
+           COALESCE(p.paye, 0) AS paye
+    FROM echeances e LEFT JOIN payes p ON p.transaction_id = e.transaction_id
+), d AS (
+    SELECT *, ROUND(MIN(montant, MAX(0, paye - (cumul - montant))), 2) AS couvert FROM c
+)
+SELECT d.id, d.transaction_id, t.nom AS transaction_, cl.nom AS client, t.devise,
+       d.no || '/' || d.nb AS versement, d.date, d.montant,
+       d.couvert AS paye, ROUND(d.montant - d.couvert, 2) AS reste,
+       CASE WHEN t.annulee = 1                         THEN 'Annulé'
+            WHEN d.montant - d.couvert <= 0.005        THEN 'Payé'
+            WHEN date(d.date) < date('now')            THEN 'En retard'
+            WHEN strftime('%Y-%m', d.date) = strftime('%Y-%m', 'now') THEN 'Ce mois'
+            WHEN d.couvert > 0                         THEN 'Partiel'
+            ELSE 'À venir' END AS etat
+FROM d JOIN transactions t ON t.id = d.transaction_id JOIN clients cl ON cl.id = t.client_id;
+
+-- Encaissements attendus par mois selon les plans de paiement (prévision de trésorerie)
+DROP VIEW IF EXISTS v_previsions;
+CREATE VIEW v_previsions AS
+SELECT strftime('%Y-%m', CASE WHEN date(v.date) < date('now') THEN date('now') ELSE v.date END) AS mois,
+       v.devise, COUNT(*) AS nb_versements, ROUND(SUM(v.reste), 2) AS a_encaisser,
+       ROUND(SUM(v.reste * t.taux_commission), 2) AS commissions_a_venir
+FROM v_echeances v JOIN transactions t ON t.id = v.transaction_id
+WHERE v.reste > 0.005 AND t.annulee = 0
+GROUP BY 1, 2 ORDER BY 1, 2;
 
 -- Résumé par client et par devise (on n'additionne jamais CAD et USD ensemble)
 DROP VIEW IF EXISTS v_clients;

@@ -9,10 +9,14 @@ Consulter
     python crm.py mensuel             REV, encaissements et commissions par mois
     python crm.py recurrent           revenu et commission récurrents par mois
     python crm.py suivis              follow-ups à faire
+    python crm.py versements          versements mensuels dus ce mois-ci ou en retard
+    python crm.py previsions          encaissements et commissions attendus mois par mois
+    python crm.py plan TRANSACTION_ID détail du plan de paiement d'une vente
 
 Saisir
     python crm.py ajouter "Client" REV [--nom ...] [--type ...] [--devise CAD] [--echeance AAAA-MM-JJ]
-                          [--follow-up AAAA-MM-JJ] [--versements N] [--recurrent mensuel] ...
+                          [--follow-up AAAA-MM-JJ] [--versements N | --mensualite 500] [--recurrent mensuel] ...
+    python crm.py echeancier TRANSACTION_ID --debut AAAA-MM-JJ (--versements N | --mensualite 500)
     python crm.py payer TRANSACTION_ID MONTANT [--methode Interac] [--date AAAA-MM-JJ]
     python crm.py suivi "Client" "Sujet" --date AAAA-MM-JJ [--transaction ID] [--tous-les 30]
     python crm.py fait SUIVI_ID [--resultat "..."]
@@ -177,14 +181,21 @@ def ajouter_transaction(con, client, rev, nom=None, type_=None, statut="en cours
     return tid
 
 
-def creer_echeancier(con, tid, versements, frequence, debut):
+def creer_echeancier(con, tid, debut, versements=None, mensualite=None, frequence="mensuel"):
+    """Plan de paiement : REV réparti en N versements, ou en versements de `mensualite` (dernier = reste)."""
     rev = con.execute("SELECT rev FROM transactions WHERE id=?", (tid,)).fetchone()["rev"]
+    if mensualite:
+        mensualite = min(mensualite, rev)
+        versements = max(1, int(-(-round(rev, 2) // round(mensualite, 2))))   # arrondi vers le haut
+    else:
+        mensualite = round(rev / versements, 2)
     con.execute("DELETE FROM echeances WHERE transaction_id=?", (tid,))
-    part = round(rev / versements, 2)
     for i in range(versements):
-        montant = part if i < versements - 1 else round(rev - part * (versements - 1), 2)  # dernier = reste
-        con.execute("INSERT INTO echeances (transaction_id, date, montant) VALUES (?,?,?)",
-                    (tid, periode_suivante(debut, frequence, i).isoformat(), montant))
+        montant = mensualite if i < versements - 1 else round(rev - mensualite * (versements - 1), 2)
+        if montant > 0:
+            con.execute("INSERT INTO echeances (transaction_id, date, montant) VALUES (?,?,?)",
+                        (tid, periode_suivante(debut, frequence, i).isoformat(), montant))
+    return versements
 
 
 def generer_recurrences(con, jusqua=None):
@@ -229,7 +240,7 @@ def importer(con, fichier):
         norm = lambda s: re.sub(r"\s+", " ", s.strip().lower())
         entetes = {norm(h): h for h in lecteur.fieldnames or []}
         col = lambda ligne, nom: (ligne.get(entetes.get(norm(nom), ""), "") or "").strip() or None
-        n = 0
+        n = plans = 0
         for ligne in lecteur:
             client, nom = col(ligne, "Client"), col(ligne, "Transaction")
             if not (client or nom):
@@ -247,8 +258,20 @@ def importer(con, fichier):
             if paye > 0:
                 con.execute("INSERT INTO paiements (transaction_id, date, montant, methode, notes) VALUES (?,?,?,?,?)",
                             (tid, contact or date.today().isoformat(), paye, col(ligne, "Méthode"), "importé"))
+            # DU THIS MONTH = mensualité du plan : on reconstruit l'échéancier mensuel de sorte que
+            # les versements déjà payés tombent dans les mois passés et le suivant dans le mois courant.
+            mensualite = lire_montant(col(ligne, "DU THIS MONTH"))
+            if mensualite and mensualite > 0 and rev > 0:
+                deja = int((paye + 0.005) // mensualite)
+                jour = date.fromisoformat(contact).day if contact else 1
+                # même jour chaque mois (jour du premier contact), plafonné au 28 pour exister dans tous les mois
+                debut = ajouter_mois(date.today().replace(day=min(jour, 28)), -deja)
+                plans += 1
+                creer_echeancier(con, tid, debut, mensualite=mensualite)
             n += 1
     con.commit()
+    if plans:
+        print(f"{plans} plan(s) de paiement mensuel reconstruit(s) à partir de DU THIS MONTH.")
     return n
 
 
@@ -275,7 +298,7 @@ def demo(con):
     con.execute("INSERT INTO paiements (transaction_id, date, montant, methode) VALUES (?,?,?,?)", (a, j(-40), 5000, "Virement"))
     b = ajouter_transaction(con, "Gagnon Construction", 8000, nom="Contrat rénovation", type_="Projet", statut="Signé",
                             premier_contact=j(-45), date_tx=j(-20), methode="Chèque")
-    creer_echeancier(con, b, 4, "mensuel", t - timedelta(days=20))
+    creer_echeancier(con, b, t - timedelta(days=20), versements=4)
     con.execute("INSERT INTO paiements (transaction_id, date, montant, methode) VALUES (?,?,?,?)", (b, j(-18), 2000, "Chèque"))
     ajouter_transaction(con, "Acme USA", 3000, nom="Consultation", type_="Service", statut="Signé", devise="USD",
                         date_tx=j(-5), echeance=j(25), methode="Wire")
@@ -295,7 +318,7 @@ def main():
     p.add_argument("--db", default=str(DB_DEFAUT))
     sp = p.add_subparsers(dest="cmd", required=True)
     for c in ["init", "demo", "transactions", "clients", "du", "recevables", "mensuel", "recurrent",
-              "suivis", "generer", "relances"]:
+              "suivis", "versements", "previsions", "generer", "relances"]:
         sp.add_parser(c)
 
     s = sp.add_parser("ajouter", help="nouvelle transaction (ou récurrence)")
@@ -307,8 +330,10 @@ def main():
     s.add_argument("--premier-contact"); s.add_argument("--follow-up")
     s.add_argument("--taux", type=float, default=0.05, help="taux de commission (défaut 0.05)")
     s.add_argument("--commission", type=float, help="montant de commission fixe (remplace taux × REV)")
-    s.add_argument("--versements", type=int, help="payable en N versements")
-    s.add_argument("--frequence", default="mensuel", help="fréquence des versements")
+    s.add_argument("--versements", type=int, help="plan de paiement : N versements mensuels")
+    s.add_argument("--mensualite", type=float, help="plan de paiement : versements de ce montant")
+    s.add_argument("--premier-versement", help="date du 1er versement (défaut : --echeance ou --date)")
+    s.add_argument("--frequence", default="mensuel", help="fréquence des versements (défaut mensuel)")
     s.add_argument("--recurrent", choices=["hebdomadaire", "aux2semaines", "mensuel", "trimestriel", "semestriel", "annuel"],
                    help="crée une récurrence : une transaction par période")
     s.add_argument("--fin", help="date de fin de la récurrence")
@@ -323,6 +348,12 @@ def main():
     s.add_argument("--tous-les", type=int, help="répéter tous les N jours")
 
     s = sp.add_parser("fait"); s.add_argument("suivi_id", type=int); s.add_argument("--resultat")
+    s = sp.add_parser("plan", help="détail du plan de paiement d'une transaction")
+    s.add_argument("transaction_id", type=int)
+    s = sp.add_parser("echeancier", help="(re)crée le plan de paiement d'une transaction existante")
+    s.add_argument("transaction_id", type=int); s.add_argument("--debut", required=True)
+    s.add_argument("--versements", type=int); s.add_argument("--mensualite", type=float)
+    s.add_argument("--frequence", default="mensuel")
     s = sp.add_parser("import"); s.add_argument("fichier")
     s = sp.add_parser("export"); s.add_argument("fichier")
     a = p.parse_args()
@@ -334,8 +365,8 @@ def main():
     elif c == "demo":
         demo(con); print("Données d'exemple ajoutées.")
     elif c == "transactions":
-        afficher(con, "SELECT id, transaction_, client, statut, devise, rev, montant_paye, difference_rev_paye, "
-                      "du_ce_mois, montant_commission, commission_collectee, etat, prochain_follow_up "
+        afficher(con, "SELECT id, transaction_, client, statut, devise, rev, mensualite, versements_restants AS restants, "
+                      "montant_paye, difference_rev_paye, du_ce_mois, montant_commission, commission_collectee, etat, prochain_follow_up "
                       "FROM v_transactions ORDER BY date_transaction, id")
     elif c == "clients":
         afficher(con, "SELECT client, devise, nb_transactions, ventes_rev, total_paye, solde_du, du_ce_mois, en_retard, "
@@ -352,6 +383,19 @@ def main():
         afficher(con, "SELECT client, devise, nb, rev_mensuel, commission_mensuelle, prochaine_date FROM v_recurrent")
     elif c == "suivis":
         afficher(con, "SELECT * FROM v_suivis")
+    elif c == "versements":
+        afficher(con, "SELECT transaction_id AS tx, client, transaction_, versement, date, devise, montant, paye, reste, etat "
+                      "FROM v_echeances WHERE etat IN ('En retard','Ce mois') ORDER BY date, client")
+    elif c == "previsions":
+        afficher(con, "SELECT * FROM v_previsions")
+    elif c == "plan":
+        afficher(con, "SELECT versement, date, devise, montant, paye, reste, etat FROM v_echeances "
+                      "WHERE transaction_id=? ORDER BY date", (a.transaction_id,))
+    elif c == "echeancier":
+        if not (a.versements or a.mensualite):
+            sys.exit("Indique --versements N ou --mensualite MONTANT.")
+        n = creer_echeancier(con, a.transaction_id, date.fromisoformat(a.debut), a.versements, a.mensualite, a.frequence)
+        con.commit(); print(f"Plan de paiement : {n} versement(s).")
     elif c == "generer":
         print(f"{generer_recurrences(con)} transaction(s) récurrente(s) créée(s).")
     elif c == "relances":
@@ -369,9 +413,10 @@ def main():
         else:
             tid = ajouter_transaction(con, a.client, a.rev, a.nom, a.type, a.statut, a.devise, a.methode, a.date,
                                       a.echeance, a.premier_contact, a.taux, a.commission, a.notes, follow_up=a.follow_up)
-            if a.versements:
-                creer_echeancier(con, tid, a.versements, a.frequence,
-                                 date.fromisoformat(a.echeance or a.date or date.today().isoformat()))
+            if a.versements or a.mensualite:
+                debut = date.fromisoformat(a.premier_versement or a.echeance or a.date or date.today().isoformat())
+                n = creer_echeancier(con, tid, debut, a.versements, a.mensualite, a.frequence)
+                print(f"Plan de paiement : {n} versement(s) {a.frequence}(s) à partir du {debut}.")
             con.commit()
             print(f"Transaction #{tid} créée.")
     elif c == "payer":
