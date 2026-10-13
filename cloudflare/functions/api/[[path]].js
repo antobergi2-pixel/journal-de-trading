@@ -6,7 +6,7 @@
 // Chaque requête doit porter le jeton de Cloudflare Access : sans lui, rien n'est lu ni écrit,
 // même si l'application Access était mal configurée.
 
-const COLLECTIONS = new Set(["clients", "ventes", "paiements", "suivis"]);
+const COLLECTIONS = new Set(["clients", "ventes", "paiements", "suivis", "factures", "parametres"]);
 const ID_VALIDE = /^[A-Za-z0-9_.~:@+-]{1,200}$/;
 const TAILLE_MAX = 256 * 1024;
 
@@ -22,7 +22,7 @@ export async function onRequest({ request, env, params }) {
 
   if (morceaux.length === 1 && morceaux[0] === "data" && methode === "GET") {
     const { results } = await env.DB.prepare("SELECT collection, id, data FROM docs ORDER BY collection, id").all();
-    const sortie = { clients: [], ventes: [], paiements: [], suivis: [] };
+    const sortie = Object.fromEntries([...COLLECTIONS].map(c => [c, []]));
     for (const r of results) sortie[r.collection].push({ id: r.id, data: JSON.parse(r.data) });
     return json(sortie);
   }

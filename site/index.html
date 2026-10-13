@@ -70,7 +70,7 @@ header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; b
 .sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .sync.ok::before { background: var(--ok); }
 .sync.bad::before { background: var(--bad); }
-nav.tabs { display: flex; gap: 2px; overflow-x: auto; margin-left: auto; scrollbar-width: none; }
+nav.tabs { display: flex; gap: 2px; overflow-x: auto; margin-left: auto; scrollbar-width: none; min-width: 0; max-width: 100%; }
 nav.tabs button { border: 0; background: none; padding: 10px 14px 12px; cursor: pointer; color: var(--muted); font-weight: 500; border-bottom: 3px solid transparent; white-space: nowrap; }
 nav.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
 nav.tabs button:hover { color: var(--fg); }
@@ -78,7 +78,7 @@ nav.tabs .count { font-family: var(--f-num); font-size: .75rem; margin-left: 4px
 
 /* ---------- Structure */
 main { display: grid; gap: 28px; padding-top: 24px; }
-main > *, .dlg-body > *, .dlg-body > div > .panel { min-width: 0; }
+main > *, main section > *, .dlg-body > *, .dlg-body > div > .panel { min-width: 0; }
 .section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
 .section-head .spacer { flex: 1; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
@@ -215,6 +215,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       <button role="tab" data-tab="ventes">Ventes<span class="count" id="c-ventes"></span></button>
       <button role="tab" data-tab="clients">Clients<span class="count" id="c-clients"></span></button>
       <button role="tab" data-tab="suivis">Suivis<span class="count" id="c-suivis"></span></button>
+      <button role="tab" data-tab="factures">Factures<span class="count" id="c-factures"></span></button>
       <button role="tab" data-tab="sauvegarde">Sauvegarde</button>
     </nav>
   </div>
@@ -225,6 +226,8 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 <dialog id="dlg"><div id="dlg-in"></div></dialog>
 <div id="toast" hidden></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script>
 "use strict";
 /* =====================================================================
@@ -237,10 +240,10 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
                 resultat, dateRealisee, creeLe}
    Tout le reste (payé, différence, dû ce mois, commissions, État) est calculé.
    ===================================================================== */
-const COLS = ["clients", "ventes", "paiements", "suivis"];
+const COLS = ["clients", "ventes", "paiements", "suivis", "factures", "parametres"];
 // La même page tourne sur claude.ai (base de l'artifact) et sur Cloudflare (base D1, via /api).
 const HEBERGE = document.querySelector('meta[name="hebergement"]')?.content === "cloudflare" ? "cloudflare" : "claude";
-const S = { clients: new Map(), ventes: new Map(), paiements: new Map(), suivis: new Map(),
+const S = { clients: new Map(), ventes: new Map(), paiements: new Map(), suivis: new Map(), factures: new Map(), parametres: new Map(), factMois: "",
             loaded: new Set(), db: null, dbState: "attente", tab: "tableau", filtre: { q: "", etat: "" } };
 const TAUX_DEFAUT = 5;
 const ETAPES = ["Prospect", "Premier contact", "Soumission envoyée", "Négociation", "Signé", "Perdu"];
@@ -358,10 +361,12 @@ function render() {
   $("#c-clients").textContent = S.clients.size || "";
   const ouverts = [...S.suivis.values()].filter(s => s.statut === "a_faire").length;
   $("#c-suivis").textContent = ouverts || "";
+  const aEnvoyer = [...S.factures.values()].filter(f => f.statut === "a_envoyer").length + (factureDueSansFiche() ? 1 : 0);
+  $("#c-factures").textContent = aEnvoyer || "";
   const sync = $("#sync");
   sync.className = "sync " + (S.dbState === "ok" ? "ok" : S.dbState === "attente" ? "" : "bad");
   sync.textContent = { ok: "Enregistré en ligne", attente: "Connexion…", absent: "Enregistrement indisponible", erreur: "Erreur de connexion" }[S.dbState];
-  const views = { tableau: viewTableau, ventes: viewVentes, clients: viewClients, suivis: viewSuivis, sauvegarde: viewSauvegarde };
+  const views = { tableau: viewTableau, ventes: viewVentes, clients: viewClients, suivis: viewSuivis, factures: viewFactures, sauvegarde: viewSauvegarde };
   $("#app").innerHTML = bannerHtml() + views[S.tab]();
   if (actId && document.getElementById(actId) && actId !== "dlg") {
     const el = document.getElementById(actId); el.focus();
@@ -408,7 +413,7 @@ function viewTableau() {
   const t = today(), semaine = addDays(t, 7);
   const fus = [...S.suivis.values()].filter(s => s.statut === "a_faire" && s.datePrevue && s.datePrevue <= semaine).sort(fuSort);
   const sansRelance = list.filter(({ v, c }) => c.retard > 0.005 && ![...S.suivis.values()].some(s => s.venteId === v.id && s.type === "relance_paiement" && s.statut === "a_faire"));
-  return `
+  return `${rappelFactures()}
   <section>
     <div class="section-head"><h2>${esc(moisNom.charAt(0).toUpperCase() + moisNom.slice(1))}</h2><span class="spacer"></span>
       <button class="btn" data-action="new-client"${dis()}>Nouveau client</button>
@@ -551,6 +556,239 @@ function viewSauvegarde() {
   </section>`;
 }
 
+/* ----- Factures Letmetalk : une facture par mois, sur les montants collectés pendant le mois */
+const DEST_DEFAUT = { destNom: "Letmetalk", destAdresse: "2 boul. Curé-Labelle, #300\nSainte-Thérèse, Canada", destCourriel: "payable@letmetalk.ai" };
+const paramsFact = () => ({ ...DEST_DEFAUT, ...(S.parametres.get("facturation") || {}) });
+const moisDe = (d = new Date(), n = 0) => isoLocal(new Date(d.getFullYear(), d.getMonth() + n, 1)).slice(0, 7);
+const factureId = m => `lmt-${m}`;
+function infosMois(m) {
+  const [y, mo] = m.split("-").map(Number);
+  const nom = new Date(y, mo - 1, 1).toLocaleDateString("fr-CA", { month: "long", year: "numeric" });
+  return { debut: `${m}-01`, fin: isoLocal(new Date(y, mo, 0)), limite: isoLocal(new Date(y, mo, 5)), paie: isoLocal(new Date(y, mo, 15)), nom };
+}
+function lignesMois(m) {
+  const parVente = new Map();
+  for (const p of S.paiements.values()) {
+    if (monthKey(p.date) !== m) continue;
+    const v = S.ventes.get(p.venteId);
+    if (!v || v.annulee) continue;
+    const l = parVente.get(v.id) || { venteId: v.id, client: clientName(v.clientId), vente: v.nom || "", dateClose: v.dateVente || "", devise: v.devise || "CAD", taux: v.tauxCommission ?? TAUX_DEFAUT / 100, collecte: 0 };
+    l.collecte += Number(p.montant) || 0;
+    parVente.set(v.id, l);
+  }
+  const lignes = [...parVente.values()].map(l => ({ ...l, collecte: r2(l.collecte), commission: r2(l.collecte * l.taux) }));
+  const parClient = {}; lignes.forEach(l => parClient[l.client] = (parClient[l.client] || 0) + 1);
+  lignes.forEach(l => l.libelle = parClient[l.client] > 1 && l.vente ? `${l.client} – ${l.vente}` : l.client);
+  return lignes.sort((a, b) => a.dateClose.localeCompare(b.dateClose) || a.libelle.localeCompare(b.libelle, "fr"));
+}
+function totauxFacture(lignes, taxes) {
+  const t = {};
+  for (const l of lignes) { t[l.devise] ||= { collecte: 0, commission: 0 }; t[l.devise].collecte += l.collecte; t[l.devise].commission += l.commission; }
+  for (const d in t) {
+    const x = t[d]; x.collecte = r2(x.collecte); x.commission = r2(x.commission);
+    x.tps = taxes ? r2(x.commission * 0.05) : 0; x.tvq = taxes ? r2(x.commission * 0.09975) : 0; x.total = r2(x.commission + x.tps + x.tvq);
+  }
+  return t;
+}
+const totalTexte = t => Object.entries(t).map(([d, x]) => money(x.total, d)).join(" + ") || money(0);
+function factureDueSansFiche() {
+  const m = moisDe(new Date(), -1), f = S.factures.get(factureId(m));
+  return !f && lignesMois(m).length > 0;
+}
+function etatFacture(f, m) {
+  const i = infosMois(m), t = today();
+  if (!f) return t > i.limite ? ["En retard", "retard"] : ["À créer", "mois"];
+  if (f.statut === "payee") return ["Payée", "paye"];
+  if (f.statut === "envoyee") return t > i.paie ? ["Paiement en retard", "retard"] : ["Envoyée", "partiel"];
+  return t > i.limite ? ["À envoyer (en retard)", "retard"] : ["À envoyer", "mois"];
+}
+function rappelFactures() {
+  const m = moisDe(new Date(), -1), i = infosMois(m), f = S.factures.get(factureId(m)), out = [];
+  const lignes = lignesMois(m);
+  if (lignes.length && (!f || f.statut === "a_envoyer")) {
+    const t = totauxFacture(lignes, !!paramsFact().taxes);
+    out.push(`<div class="banner${today() > i.limite ? " bad" : ""}"><strong>Facture de ${esc(i.nom)} pour Letmetalk :</strong> ${esc(totalTexte(t))} de commission à facturer, à envoyer avant le ${esc(fmtDate(i.limite))}. <button class="btn link" data-action="fact-ouvrir" data-mois="${m}">Préparer la facture</button></div>`);
+  }
+  for (const x of S.factures.values()) if (x.statut === "envoyee" && today() > infosMois(x.mois).paie)
+    out.push(`<div class="banner">Le paiement de la facture <strong>${esc(x.numero)}</strong> était prévu le ${esc(fmtDate(infosMois(x.mois).paie))}. Vérifie ton compte, puis <button class="btn link" data-action="fact-ouvrir" data-mois="${esc(x.mois)}">marque-la payée</button>.</div>`);
+  return out.join("");
+}
+function viewFactures() {
+  const pf = paramsFact(), m = S.factMois || moisDe(new Date(), -1), i = infosMois(m), f = S.factures.get(factureId(m));
+  const figee = f && f.statut !== "a_envoyer";
+  const lignes = figee ? f.lignes : lignesMois(m), taxes = figee ? !!f.taxes : !!pf.taxes;
+  const tot = totauxFacture(lignes, taxes), [etat, cls] = etatFacture(f, m);
+  const moisOptions = []; for (let n = 0; n >= -12; n--) moisOptions.push(moisDe(new Date(), n));
+  const choix = [...new Set([...moisOptions, ...[...S.factures.values()].map(x => x.mois), m])].sort().reverse();
+  const ecart = figee && JSON.stringify(totauxFacture(lignesMois(m), taxes)) !== JSON.stringify(tot);
+  const historique = [...S.factures.values()].sort((a, b) => b.mois.localeCompare(a.mois));
+  const pret = !!(pf.nom && pf.adresse);
+  return `<section style="display:grid;gap:16px">
+    <div class="section-head" style="margin:0"><h2>Factures Letmetalk</h2><span class="spacer"></span>
+      <div class="toolbar"><label class="small muted" for="fact-mois">Mois facturé</label>
+      <select id="fact-mois">${choix.map(x => `<option value="${x}"${x === m ? " selected" : ""}>${esc(infosMois(x).nom)}</option>`).join("")}</select>
+      <button class="btn" data-action="fact-params"${dis()}>Mes informations</button></div></div>
+    ${pret ? "" : `<div class="banner"><strong>Avant ta première facture :</strong> entre ton nom et ton adresse, qui apparaîtront sur la facture. <button class="btn link" data-action="fact-params"${dis()}>Remplir mes informations</button></div>`}
+    <div class="panel">
+      <div class="panel-pad" style="display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;border-bottom:1px solid var(--line)">
+        <h3 style="flex:1;min-width:200px">${esc(f?.numero || `LMT-${m}`)} · ${esc(i.nom)}</h3><span class="chip ${cls}">${esc(etat)}</span>
+        <span class="small muted">À envoyer avant le <strong>${esc(fmtDate(i.limite))}</strong> · paiement le <strong>${esc(fmtDate(i.paie))}</strong></span>
+      </div>
+      ${ecart ? `<div class="banner" style="margin:12px 16px 0">Des paiements de ${esc(i.nom)} ont changé depuis l'envoi de cette facture. Elle reste telle qu'envoyée ; mentionne la différence à Letmetalk si nécessaire.</div>` : ""}
+      ${lignes.length ? `<div class="tscroll"><table>
+        <thead><tr><th>Client</th><th>Date de close</th><th class="r">Montant collecté</th><th class="r">% commission</th><th class="r">Commission</th></tr></thead>
+        <tbody>${lignes.map(l => `<tr><td>${esc(l.libelle)}</td><td class="num">${esc(fmtDate(l.dateClose) || "—")}</td><td class="r num">${esc(money(l.collecte, l.devise))}</td><td class="r num">${esc(pct(l.taux))}</td><td class="r num">${esc(money(l.commission, l.devise))}</td></tr>`).join("")}</tbody>
+        <tfoot>${Object.entries(tot).map(([d, x]) => `<tr><td colspan="2">Total ${esc(d)}</td><td class="r num">${esc(money(x.collecte, d))}</td><td></td><td class="r num">${esc(money(x.commission, d))}</td></tr>
+          ${taxes ? `<tr><td colspan="4">TPS (5 %)</td><td class="r num">${esc(money(x.tps, d))}</td></tr><tr><td colspan="4">TVQ (9,975 %)</td><td class="r num">${esc(money(x.tvq, d))}</td></tr><tr><td colspan="4">Total à payer ${esc(d)}</td><td class="r num">${esc(money(x.total, d))}</td></tr>` : ""}`).join("")}</tfoot>
+      </table></div>` : `<div class="empty"><p>Aucun paiement reçu en ${esc(i.nom)}. La facture se remplit avec les paiements que tu enregistres sur tes ventes, à la date où l'argent est collecté.</p></div>`}
+      <div class="panel-pad toolbar" style="border-top:1px solid var(--line)">
+        ${!f ? `<button class="btn primary" data-action="fact-creer" data-mois="${m}"${!lignes.length || !pret || !canWrite() ? " disabled" : ""}>Créer la facture</button>`
+          : f.statut === "a_envoyer" ? `<button class="btn" data-action="fact-creer" data-mois="${m}"${!lignes.length || !pret || !canWrite() ? " disabled" : ""}>Mettre à jour</button>` : ""}
+        ${f ? `<button class="btn${f.statut === "a_envoyer" ? " primary" : ""}" data-action="fact-pdf" data-mois="${m}">Télécharger le PDF</button><button class="btn" data-action="fact-courriel" data-mois="${m}">Courriel prêt à envoyer</button>` : ""}
+        ${f?.statut === "a_envoyer" ? `<button class="btn" data-action="fact-statut" data-mois="${m}" data-statut="envoyee"${dis()}>Marquer envoyée</button>` : ""}
+        ${f?.statut === "envoyee" ? `<button class="btn primary" data-action="fact-statut" data-mois="${m}" data-statut="payee"${dis()}>Marquer payée</button>` : ""}
+        <span class="spacer" style="flex:1"></span>
+        ${f?.statut === "a_envoyer" ? `<button class="btn danger" data-action="fact-suppr" data-mois="${m}"${dis()}>Supprimer</button>` : ""}
+        ${f && f.statut !== "a_envoyer" ? `<span class="small muted">${f.dateEnvoi ? `Envoyée le ${esc(fmtDate(f.dateEnvoi))}` : ""}${f.datePaiement ? ` · payée le ${esc(fmtDate(f.datePaiement))}` : ""}</span>` : ""}
+      </div>
+    </div>
+    ${historique.length ? `<div><h3 style="margin-bottom:8px">Historique</h3><div class="panel"><div class="tscroll"><table>
+      <thead><tr><th>Facture</th><th>Mois</th><th class="r">Ventes</th><th class="r">Total</th><th>État</th><th>Envoyée</th><th>Payée</th></tr></thead>
+      <tbody>${historique.map(x => { const [e, c] = etatFacture(x, x.mois); return `<tr class="click" data-action="fact-ouvrir" data-mois="${esc(x.mois)}"><td><strong>${esc(x.numero)}</strong></td><td>${esc(infosMois(x.mois).nom)}</td><td class="r num">${(x.lignes || []).length}</td><td class="r num">${esc(totalTexte(totauxFacture(x.lignes || [], !!x.taxes)))}</td><td><span class="chip ${c}">${esc(e)}</span></td><td class="num small">${esc(fmtDate(x.dateEnvoi))}</td><td class="num small">${esc(fmtDate(x.datePaiement))}</td></tr>`; }).join("")}</tbody>
+    </table></div></div></div>` : ""}
+    <p class="small muted" style="margin:0;max-width:70ch">La facture reprend les paiements reçus pendant le mois, vente par vente. Les ventes annulées sont exclues. Une fois créée, la facture est figée : la mettre à jour reste possible tant qu'elle n'est pas marquée envoyée.</p>
+  </section>`;
+}
+function formParams() {
+  const pf = paramsFact();
+  openDlg(`<form class="dlg" id="form-params" novalidate>${head("Mes informations de facturation")}
+    <div class="dlg-body">
+      <p class="muted small" style="margin:0">Elles apparaissent sur chaque facture. Ton NAS et ton spécimen de chèque se transmettent directement à Letmetalk : ne les enregistre pas ici.</p>
+      <div class="grid">
+        ${field("Nom complet", `<input id="pf-nom" name="nom" value="${esc(pf.nom || "")}" autocomplete="name">`)}
+        ${field("Entreprise (facultatif)", `<input id="pf-ent" name="entreprise" value="${esc(pf.entreprise || "")}">`)}
+        ${field("Adresse", `<textarea id="pf-adr" name="adresse" placeholder="Numéro, rue\nVille (Québec)  Code postal">${esc(pf.adresse || "")}</textarea>`, "full")}
+        ${field("Courriel", `<input id="pf-mail" name="courriel" type="email" value="${esc(pf.courriel || "")}">`)}
+        ${field("Téléphone", `<input id="pf-tel" name="telephone" type="tel" value="${esc(pf.telephone || "")}">`)}
+      </div>
+      <fieldset><legend>Taxes</legend>
+        <label class="check"><input type="checkbox" id="pf-taxes" name="taxes"${pf.taxes ? " checked" : ""}> Je suis inscrit à la TPS et à la TVQ : ajouter les taxes sur ma commission</label>
+        <div class="grid">${field("N° de TPS", `<input id="pf-tps" name="tps" value="${esc(pf.tps || "")}" placeholder="123456789 RT0001">`)}${field("N° de TVQ", `<input id="pf-tvq" name="tvq" value="${esc(pf.tvq || "")}" placeholder="1234567890 TQ0001">`)}</div>
+        <span class="hint small muted">Laisse décoché si tu n'es pas inscrit (petit fournisseur).</span>
+      </fieldset>
+      <fieldset><legend>Facturer à</legend><div class="grid">
+        ${field("Nom", `<input id="pf-dnom" name="destNom" value="${esc(pf.destNom)}">`)}
+        ${field("Courriel de facturation", `<input id="pf-dmail" name="destCourriel" type="email" value="${esc(pf.destCourriel)}">`)}
+        ${field("Adresse", `<textarea id="pf-dadr" name="destAdresse">${esc(pf.destAdresse)}</textarea>`, "full")}
+      </div></fieldset>
+      <p class="err-msg" id="pf-err" hidden></p></div>
+    <div class="dlg-foot"><span class="spacer"></span><button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></form>`,
+    el => {
+      const form = $("#form-params", el); form.nom.focus();
+      form.addEventListener("submit", async e => {
+        e.preventDefault();
+        const f = Object.fromEntries(new FormData(form)), tx = (k) => (f[k] || "").trim();
+        if (!tx("nom")) return showErr("#pf-err", "Indique ton nom.");
+        if (!tx("adresse")) return showErr("#pf-err", "Indique ton adresse.");
+        if (f.taxes && (!tx("tps") || !tx("tvq"))) return showErr("#pf-err", "Indique tes numéros de TPS et de TVQ, ou décoche les taxes.");
+        const body = { nom: tx("nom"), entreprise: tx("entreprise"), adresse: tx("adresse"), courriel: tx("courriel"), telephone: tx("telephone"),
+                       taxes: !!f.taxes, tps: tx("tps"), tvq: tx("tvq"), destNom: tx("destNom") || DEST_DEFAUT.destNom,
+                       destAdresse: tx("destAdresse") || DEST_DEFAUT.destAdresse, destCourriel: tx("destCourriel") || DEST_DEFAUT.destCourriel };
+        await write(() => S.db.collection("parametres").doc("facturation").set(body), "Informations enregistrées");
+      });
+    });
+}
+async function creerFacture(m) {
+  const pf = paramsFact(), lignes = lignesMois(m), ex = S.factures.get(factureId(m));
+  if (!lignes.length) return toast("Aucun paiement à facturer pour ce mois.", true);
+  if (ex && ex.statut !== "a_envoyer") return toast("Cette facture est déjà envoyée.", true);
+  const { destNom, destAdresse, destCourriel, ...emetteur } = pf;
+  const body = { numero: `LMT-${m}`, mois: m, dateEmission: today(), lignes, taxes: !!pf.taxes, emetteur, destinataire: { nom: destNom, adresse: destAdresse, courriel: destCourriel },
+                 statut: "a_envoyer", dateEnvoi: "", datePaiement: "", creeLe: ex?.creeLe || today() };
+  await write(() => S.db.collection("factures").doc(factureId(m)).set(body), ex ? "Facture mise à jour" : "Facture créée", false);
+}
+async function statutFacture(m, statut) {
+  const f = S.factures.get(factureId(m)); if (!f) return;
+  const maj = statut === "envoyee" ? { statut, dateEnvoi: today() } : { statut, datePaiement: today() };
+  await write(() => S.db.collection("factures").doc(factureId(m)).update(maj), statut === "envoyee" ? "Facture marquée envoyée" : "Facture marquée payée", false);
+}
+const pdfTxt = s => String(s ?? "").replace(/[\u202f\u00a0]/g, " ").replace(/[\u2018\u2019]/g, "'").replace(/[\u2013\u2014]/g, "-");
+function construirePdf(f) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "letter" }), W = doc.internal.pageSize.getWidth(), M = 48;
+  const e = f.emetteur || {}, d = f.destinataire || {}, i = infosMois(f.mois);
+  doc.setFont("helvetica", "bold").setFontSize(22).text("FACTURE", M, 64);
+  doc.setFont("helvetica", "normal").setFontSize(10);
+  const meta = [["Numéro", f.numero], ["Date", fmtDate(f.dateEmission)], ["Période", `du ${fmtDate(i.debut)} au ${fmtDate(i.fin)}`], ["Paiement prévu", fmtDate(i.paie)]];
+  meta.forEach(([k, v], n) => { doc.setFont("helvetica", "bold").text(pdfTxt(k), W - M - 240, 50 + n * 15); doc.setFont("helvetica", "normal").text(pdfTxt(v), W - M, 50 + n * 15, { align: "right" }); });
+  const bloc = (titre, lignes, x, y) => {
+    doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(110).text(pdfTxt(titre.toUpperCase()), x, y);
+    doc.setTextColor(20).setFontSize(10);
+    lignes.filter(Boolean).forEach((l, n) => { doc.setFont("helvetica", n === 0 ? "bold" : "normal").text(pdfTxt(l), x, y + 16 + n * 14); });
+    return y + 16 + lignes.filter(Boolean).length * 14;
+  };
+  const y1 = bloc("De", [e.nom, e.entreprise, ...(e.adresse || "").split("\n"), e.courriel, e.telephone, e.taxes && e.tps ? `TPS : ${e.tps}` : "", e.taxes && e.tvq ? `TVQ : ${e.tvq}` : ""], M, 130);
+  const y2 = bloc("Facturer à", [d.nom, ...(d.adresse || "").split("\n"), d.courriel], W / 2 + 20, 130);
+  const tot = totauxFacture(f.lignes || [], !!f.taxes);
+  const pied = [];
+  for (const [dv, x] of Object.entries(tot)) {
+    pied.push([{ content: `Total ${dv}`, colSpan: 2 }, pdfTxt(money(x.collecte, dv)), "", pdfTxt(money(x.commission, dv))]);
+    if (f.taxes) {
+      pied.push([{ content: "TPS (5 %)", colSpan: 4 }, pdfTxt(money(x.tps, dv))]);
+      pied.push([{ content: "TVQ (9,975 %)", colSpan: 4 }, pdfTxt(money(x.tvq, dv))]);
+      pied.push([{ content: `Total à payer ${dv}`, colSpan: 4 }, pdfTxt(money(x.total, dv))]);
+    }
+  }
+  doc.autoTable({
+    startY: Math.max(y1, y2) + 24, margin: { left: M, right: M },
+    head: [["Client", "Date de close", "Montant collecté", "% commission", "Commission"]],
+    body: (f.lignes || []).map(l => [pdfTxt(l.libelle), pdfTxt(fmtDate(l.dateClose) || "-"), pdfTxt(money(l.collecte, l.devise)), pdfTxt(pct(l.taux)), pdfTxt(money(l.commission, l.devise))]),
+    foot: pied, showFoot: "lastPage", theme: "grid",
+    styles: { font: "helvetica", fontSize: 9.5, cellPadding: 6, lineColor: 210, textColor: 20 },
+    headStyles: { fillColor: [15, 92, 110], textColor: 255, fontStyle: "bold" },
+    footStyles: { fillColor: [236, 238, 233], textColor: 20, fontStyle: "bold" },
+    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+    didParseCell: c => { if (c.section !== "body" && c.column.index >= 2) c.cell.styles.halign = "right"; },
+  });
+  const yFin = doc.lastAutoTable.finalY + 30;
+  doc.setFont("helvetica", "normal").setFontSize(9.5).setTextColor(90);
+  doc.text(pdfTxt(`Paiement par dépôt direct, le ${fmtDate(i.paie)}. Merci !`), M, yFin);
+  return doc.output("arraybuffer");
+}
+async function telechargerPdf(m) {
+  const f = S.factures.get(factureId(m)); if (!f) return;
+  if (!window.jspdf?.jsPDF || !window.jspdf.jsPDF.API?.autoTable) return toast("Le générateur de PDF n'a pas pu se charger. Recharge la page.", true);
+  let data; try { data = construirePdf(f); } catch (e) { return toast("La création du PDF a échoué.", true); }
+  const nom = (f.emetteur?.nom || "facture").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  await telecharger(`${f.numero}-${nom}.pdf`, data, "PDF téléchargé");
+}
+function courrielFacture(m) {
+  const f = S.factures.get(factureId(m)); if (!f) return;
+  const i = infosMois(m), tot = totauxFacture(f.lignes || [], !!f.taxes), e = f.emetteur || {};
+  const objet = `Facture ${f.numero} - ${e.nom || ""} - ${i.nom}`;
+  const corps = `Bonjour,
+
+Vous trouverez ci-joint ma facture ${f.numero} pour la période de ${i.nom}.
+
+Nombre de ventes : ${(f.lignes || []).length}
+${Object.entries(tot).map(([d, x]) => `Montant collecté : ${money(x.collecte, d)}\nCommission${f.taxes ? " (taxes incluses)" : ""} : ${money(x.total, d)}`).join("\n")}
+
+Merci et bonne journée,
+${e.nom || ""}${e.telephone ? "\n" + e.telephone : ""}`.replace(/[\u202f\u00a0]/g, " ");
+  const bloc = (id, label, val, multi) => `<div class="field"><span>${label}</span><div style="display:flex;gap:6px;align-items:start">${multi ? `<textarea id="${id}" readonly style="min-height:200px">${esc(val)}</textarea>` : `<input id="${id}" readonly value="${esc(val)}">`}<button type="button" class="btn sm" data-action="copier" data-cible="${id}">Copier</button></div></div>`;
+  openDlg(`<div class="dlg">${head("Courriel à Letmetalk")}<div class="dlg-body">
+    <p class="muted small" style="margin:0">Copie chaque partie dans un nouveau courriel, puis joins le PDF de la facture.</p>
+    ${bloc("ml-a", "À", f.destinataire?.courriel || DEST_DEFAUT.destCourriel)}${bloc("ml-objet", "Objet", objet)}${bloc("ml-corps", "Message", corps, true)}
+    <p class="muted small" style="margin:0">À envoyer avant le ${esc(fmtDate(i.limite))}. Une fois envoyé, clique sur « Marquer envoyée ».</p>
+  </div><div class="dlg-foot"><button type="button" class="btn" data-action="fact-pdf" data-mois="${m}">Télécharger le PDF</button><span class="spacer"></span>
+    ${f.statut === "a_envoyer" ? `<button type="button" class="btn primary" data-action="fact-statut" data-mois="${m}" data-statut="envoyee"${dis()}>Marquer envoyée</button>` : `<button type="button" class="btn" data-action="close">Fermer</button>`}</div></div>`);
+}
+async function copier(id, btn) {
+  const el = document.getElementById(id); if (!el) return;
+  try { await navigator.clipboard.writeText(el.value); btn.textContent = "Copié"; setTimeout(() => btn.isConnected && (btn.textContent = "Copier"), 1500); }
+  catch (_) { el.focus(); el.select(); toast("Le texte est sélectionné : fais Cmd+C (ou Ctrl+C)."); }
+}
+
 /* ---------- Fenêtres */
 const dlg = $("#dlg");
 function openDlg(html, onReady) { $("#dlg-in").innerHTML = html; if (!dlg.open) dlg.showModal(); onReady?.($("#dlg-in")); }
@@ -628,7 +866,7 @@ function formVente(v, clientId) {
       ${field("Type", `<input id="v-type" name="type" list="dl-types" value="${esc(x.type || "")}">`)}
       ${field("Statut (étape de la vente)", `<input id="v-statut" name="statut" list="dl-etapes" value="${esc(x.statut || "")}">`)}
       ${field("Date du premier contact", `<input id="v-contact" name="premierContact" type="date" value="${esc(x.premierContact || "")}">`)}
-      ${field("Date de la vente", `<input id="v-date" name="dateVente" type="date" value="${esc(x.dateVente || "")}">`)}
+      ${field("Date de close", `<input id="v-date" name="dateVente" type="date" value="${esc(x.dateVente || "")}">`)}
     </div>
     <fieldset><legend>Montant et commission</legend><div class="grid">
       ${field("REV", `<input id="v-rev" name="rev" inputmode="decimal" value="${x.rev ?? ""}" placeholder="0,00">`, "", "Montant total de la vente.")}
@@ -860,7 +1098,7 @@ function snapshotData() {
 async function telecharger(filename, data, label) {
   let dls = null;
   if (HEBERGE === "cloudflare") {
-    const url = URL.createObjectURL(new Blob([data], { type: filename.endsWith(".csv") ? "text/csv" : "application/json" }));
+    const url = URL.createObjectURL(new Blob([data], { type: filename.endsWith(".csv") ? "text/csv" : filename.endsWith(".pdf") ? "application/pdf" : "application/json" }));
     const a = Object.assign(document.createElement("a"), { href: url, download: filename });
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
     toast(label); return true;
@@ -890,10 +1128,12 @@ function lireRestauration(file) {
   rd.onload = () => {
     try {
       const o = JSON.parse(rd.result);
+      if (!["clients", "ventes", "paiements", "suivis"].every(c => Array.isArray(o[c]))) throw new Error();
+      for (const c of COLS) o[c] ||= [];
       if (!COLS.every(c => Array.isArray(o[c]))) throw new Error();
       for (const c of COLS) for (const d of o[c]) if (!d || typeof d.id !== "string" || !/^[A-Za-z0-9_.~:@+-]{1,200}$/.test(d.id) || d.id === "." || d.id === "..") throw new Error();
       restoreData = o;
-      zone.innerHTML = `<div class="preview">Sauvegarde du ${esc(fmtDate((o.exporteLe || "").slice(0, 10)) || "?")} : ${o.clients.length} clients, ${o.ventes.length} ventes, ${o.paiements.length} paiements, ${o.suivis.length} suivis.</div>
+      zone.innerHTML = `<div class="preview">Sauvegarde du ${esc(fmtDate((o.exporteLe || "").slice(0, 10)) || "?")} : ${o.clients.length} clients, ${o.ventes.length} ventes, ${o.paiements.length} paiements, ${o.suivis.length} suivis, ${o.factures.length} factures.</div>
         <div class="toolbar" style="margin-top:8px"><button class="btn primary" data-action="restore-go">Restaurer ces données</button></div>`;
     } catch (_) { zone.innerHTML = `<p class="err-msg">Ce fichier n'est pas une sauvegarde de cette page. Choisis un fichier .json téléchargé depuis l'onglet Sauvegarde.</p>`; }
   };
@@ -959,6 +1199,14 @@ document.addEventListener("click", e => {
     case "del-suivi": supprimer("suivi", id, el); break;
     case "backup": backup(); break;
     case "csv": csvExport(); break;
+    case "fact-ouvrir": S.tab = "factures"; S.factMois = el.dataset.mois; lsSet("onglet", "factures"); closeDlg(); render(); window.scrollTo(0, 0); break;
+    case "fact-params": formParams(); break;
+    case "fact-creer": creerFacture(el.dataset.mois); break;
+    case "fact-pdf": telechargerPdf(el.dataset.mois); break;
+    case "fact-courriel": courrielFacture(el.dataset.mois); break;
+    case "fact-statut": statutFacture(el.dataset.mois, el.dataset.statut).then(() => dlg.open && closeDlg()); break;
+    case "fact-suppr": if (armed(el)) write(() => S.db.collection("factures").doc(factureId(el.dataset.mois)).delete(), "Facture supprimée", false); break;
+    case "copier": copier(el.dataset.cible, el); break;
     case "restore-go": restaurer(el); break;
   }
 });
@@ -966,6 +1214,7 @@ $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[d
 document.addEventListener("input", e => { if (e.target.id === "f-q") { S.filtre.q = e.target.value; render(); } });
 document.addEventListener("change", e => {
   if (e.target.id === "f-etat") { S.filtre.etat = e.target.value; render(); }
+  if (e.target.id === "fact-mois") { S.factMois = e.target.value; render(); }
   if (e.target.id === "restore-file" && e.target.files[0]) lireRestauration(e.target.files[0]);
 });
 
@@ -1029,7 +1278,7 @@ function restDb() {
 }
 
 /* ---------- Démarrage */
-const saved = lsGet("onglet"); if (saved && ["tableau", "ventes", "clients", "suivis", "sauvegarde"].includes(saved)) S.tab = saved;
+const saved = lsGet("onglet"); if (saved && ["tableau", "ventes", "clients", "suivis", "factures", "sauvegarde"].includes(saved)) S.tab = saved;
 render();
 (async () => {
   let db = null;

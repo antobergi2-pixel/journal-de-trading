@@ -40,3 +40,13 @@ L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout es
 - Mise en ligne : `cloudflare/deployer.sh`, avec CLOUDFLARE_API_TOKEN et EMAIL_AUTORISE dans l'environnement (CLOUDFLARE_ACCOUNT_ID facultatif). Le réseau de l'environnement doit autoriser `api.cloudflare.com`.
 - Ne jamais committer l'adresse courriel ni les identifiants Cloudflare : le dépôt est public. Le script les écrit seulement dans `cloudflare/.deploiement/`, qui est ignoré par Git.
 - Après toute modification de `site/index.html` : republier l'artifact claude.ai ET relancer `deployer.sh`.
+
+## Factures Letmetalk (onglet Factures du site)
+
+L'utilisateur est vendeur pour Letmetalk et se fait payer sur facture :
+- **Une facture par mois**, sur les **montants collectés pendant le mois** (paiements reçus), vente par vente : client, date de close (`dateVente`), montant collecté, % de commission, commission. Les ventes annulées sont exclues.
+- À envoyer à **payable@letmetalk.ai** au plus tard **5 jours après la fin du mois** ; paiement par dépôt direct **le 15 du mois suivant**.
+- Facture adressée à : Letmetalk, 2 boul. Curé-Labelle, #300, Sainte-Thérèse, Canada.
+- Collections : `factures` (id `lmt-AAAA-MM`, numéro `LMT-AAAA-MM`, lignes figées à la création, statut `a_envoyer` → `envoyee` → `payee`) et `parametres/facturation` (nom, adresse, courriel, téléphone, inscription TPS/TVQ et numéros, destinataire).
+- Ne jamais enregistrer le NAS ni le spécimen de chèque dans le site : ils vont directement à Letmetalk.
+- PDF généré dans la page (jsPDF 2.5.1 et jspdf-autotable 3.8.2, depuis cdnjs) ; le courriel est préparé à copier, car la page ne peut pas envoyer de courriel elle-même.
