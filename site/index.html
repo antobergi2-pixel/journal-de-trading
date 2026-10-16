@@ -232,11 +232,11 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 "use strict";
 /* =====================================================================
    Données : 4 collections dans la base de la page (capacité db)
-     clients   {nom, entreprise, courriel, telephone, statut, source, notes, creeLe}
+     clients   {nom, statut, travail, horaires, courriel, telephone, salaireAnnuel, argentDeCote, pain, goals, notes, creeLe}
      ventes    {nom, clientId, type, statut, premierContact, dateVente, rev, devise, methode,
                 tauxCommission, plan:{mode, nb, mensualite, premierVersement, fin}, annulee, notes, creeLe}
      paiements {venteId, date, montant, methode, reference, creeLe}
-     suivis    {clientId, venteId, type, sujet, datePrevue, statut, priorite, recurrenceJours,
+     suivis    {clientId, venteId, type, sujet, datePrevue, heure, statut, priorite, recurrenceJours,
                 resultat, dateRealisee, creeLe}
    Tout le reste (payé, différence, dû ce mois, commissions, État) est calculé.
    ===================================================================== */
@@ -503,24 +503,27 @@ function soldeClient(id) {
 const parDevise = (o, k) => Object.entries(o).map(([d, t]) => money(t[k], d)).join("<br>") || "—";
 function viewClients() {
   const list = [...S.clients.values()].sort(byName);
-  const statutChip = s => `<span class="chip ${s === "actif" ? "paye" : s === "prospect" ? "mois" : "recevoir"}">${esc({ prospect: "Prospect", actif: "Actif", inactif: "Inactif", perdu: "Perdu" }[s] || s || "Actif")}</span>`;
+  const statutChip = s => `<span class="chip ${s === "actif" ? "paye" : s === "prospect" ? "mois" : "recevoir"}">${esc(Object.fromEntries(STATUTS_CLIENT)[s] || s || "Actif")}</span>`;
+  const argent = v => (v === null || v === undefined || v === "") ? "—" : money(v, "CAD");
   return `<section><div class="section-head"><h2>Clients</h2><span class="spacer"></span><button class="btn primary" data-action="new-client"${dis()}>Nouveau client</button></div>
-  <div class="panel">${!list.length ? `<div class="empty"><h3>Aucun client pour l'instant</h3><p>Ajoute tes clients et tes prospects avec leurs coordonnées. Chaque fiche regroupe leurs ventes, leurs paiements et leurs suivis.</p><button class="btn primary" data-action="new-client"${dis()}>Ajouter mon premier client</button></div>` : `<div class="tscroll"><table>
-    <thead><tr><th>Client</th><th>Statut</th><th>Coordonnées</th><th class="r">Ventes</th><th class="r">Ventes (REV)</th><th class="r">Solde dû</th><th>Prochain suivi</th></tr></thead>
-    <tbody>${list.map(cl => { const t = soldeClient(cl.id), n = Object.values(t).reduce((a, x) => a + x.n, 0);
-      const fu = [...S.suivis.values()].filter(s => s.clientId === cl.id && s.statut === "a_faire" && s.datePrevue).map(s => s.datePrevue).sort()[0];
-      return `<tr class="click" data-action="open-client" data-id="${esc(cl.id)}"><td><strong>${esc(cl.nom)}</strong>${cl.entreprise ? `<span class="sub">${esc(cl.entreprise)}</span>` : ""}</td>
+  <div class="panel">${!list.length ? `<div class="empty"><h3>Aucun client pour l'instant</h3><p>Chaque fiche garde son travail, ses horaires, son pain, ses goals, ses finances et ses rendez-vous, avec ses ventes et ses suivis.</p><button class="btn primary" data-action="new-client"${dis()}>Ajouter mon premier client</button></div>` : `<div class="tscroll"><table>
+    <thead><tr><th>Client</th><th>Statut</th><th>Coordonnées</th><th>Horaires</th><th class="r">Salaire annuel</th><th class="r">Argent de côté</th><th>Prochain RDV</th><th class="r">Solde dû</th></tr></thead>
+    <tbody>${list.map(cl => { const t = soldeClient(cl.id), rdv = rdvsDe(cl.id)[0];
+      return `<tr class="click" data-action="open-client" data-id="${esc(cl.id)}"><td><strong>${esc(cl.nom)}</strong>${(cl.travail || cl.entreprise) ? `<span class="sub">${esc(cl.travail || cl.entreprise)}</span>` : ""}</td>
       <td>${statutChip(cl.statut)}</td><td class="small">${esc(cl.courriel || "")}${cl.telephone ? `<span class="sub">${esc(cl.telephone)}</span>` : ""}</td>
-      <td class="r num">${n}</td><td class="r num">${parDevise(t, "ventes")}</td><td class="r num">${parDevise(t, "solde")}</td><td class="num small">${esc(fmtDate(fu))}</td></tr>`; }).join("")}</tbody></table></div>`}</div></section>`;
+      <td class="small">${esc(cl.horaires || "")}</td>
+      <td class="r num">${esc(argent(cl.salaireAnnuel))}</td><td class="r num">${esc(argent(cl.argentDeCote))}</td>
+      <td class="small">${rdv ? `<span class="num">${esc(quandRdv(rdv))}</span><span class="sub">${esc(rdv.sujet)}</span>` : ""}</td>
+      <td class="r num">${parDevise(t, "solde")}</td></tr>`; }).join("")}</tbody></table></div>`}</div></section>`;
 }
 
 /* ----- Suivis */
 const prioRank = p => p === "haute" ? 0 : p === "basse" ? 2 : 1;
-const fuSort = (a, b) => (a.datePrevue || "9999").localeCompare(b.datePrevue || "9999") || prioRank(a.priorite) - prioRank(b.priorite);
+const fuSort = (a, b) => (a.datePrevue || "9999").localeCompare(b.datePrevue || "9999") || (a.heure || "99").localeCompare(b.heure || "99") || prioRank(a.priorite) - prioRank(b.priorite);
 function fuRow(s) {
   const t = today(), late = s.statut === "a_faire" && s.datePrevue && s.datePrevue < t, v = s.venteId && S.ventes.get(s.venteId);
   return `<div class="fu${late ? " late" : ""}${s.statut === "fait" ? " done" : ""}">
-    <span class="when">${s.datePrevue === t ? "Aujourd'hui" : esc(fmtDate(s.datePrevue) || "Sans date")}</span>
+    <span class="when">${s.datePrevue === t ? "Aujourd'hui" : esc(fmtDate(s.datePrevue) || "Sans date")}${s.heure ? `<br>${esc(s.heure.replace(":", " h "))}` : ""}</span>
     <span class="what"><span class="${s.priorite === "haute" ? "prio-haute" : ""}">${esc(s.sujet)}</span>
       <span class="sub">${esc(TYPES_SUIVI[s.type] || s.type)} · <button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">${esc(clientName(s.clientId))}</button>${v ? ` · ${esc(v.nom)}` : ""}${s.recurrenceJours ? ` · tous les ${s.recurrenceJours} jours` : ""}${s.resultat ? ` · ${esc(s.resultat)}` : ""}</span></span>
     <span class="toolbar">${s.statut === "a_faire" ? `<button class="btn sm" data-action="fait" data-id="${esc(s.id)}"${dis()}>Fait</button>` : ""}<button class="btn sm" data-action="edit-suivi" data-id="${esc(s.id)}"${dis()}>Modifier</button></span></div>`;
@@ -800,54 +803,92 @@ const dl = (id, list) => `<datalist id="${id}">${list.map(o => `<option value="$
 const field = (label, input, cls = "", hint = "") => `<label class="field ${cls}"><span>${label}</span>${input}${hint ? `<span class="hint">${hint}</span>` : ""}</label>`;
 
 /* ----- Client */
+const STATUTS_CLIENT = [["prospect", "Prospect"], ["actif", "Actif"], ["inactif", "Inactif"], ["perdu", "Perdu"]];
+const montantOuVide = v => (v === null || v === undefined || v === "" || isNaN(v)) ? "" : String(v).replace(".", ",");
+const rdvsDe = id => [...S.suivis.values()].filter(s => s.clientId === id && s.type === "rencontre" && s.statut === "a_faire" && s.datePrevue && s.datePrevue >= today())
+  .sort((a, b) => `${a.datePrevue} ${a.heure || ""}`.localeCompare(`${b.datePrevue} ${b.heure || ""}`));
+const quandRdv = s => `${fmtDate(s.datePrevue)}${s.heure ? ` à ${s.heure.replace(":", " h ")}` : ""}`;
 function formClient(cl) {
   const c = cl || { statut: "prospect" };
   openDlg(`<form class="dlg" id="form-client" novalidate>${head(cl ? "Modifier le client" : "Nouveau client")}
     <div class="dlg-body"><div class="grid">
-      ${field("Nom", `<input id="cl-nom" name="nom" required value="${esc(c.nom || "")}" autocomplete="off">`, "full")}
-      ${field("Entreprise", `<input id="cl-ent" name="entreprise" value="${esc(c.entreprise || "")}">`)}
-      ${field("Statut", `<select id="cl-statut" name="statut">${[["prospect", "Prospect"], ["actif", "Actif"], ["inactif", "Inactif"], ["perdu", "Perdu"]].map(([k, l]) => `<option value="${k}"${k === c.statut ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${field("Nom", `<input id="cl-nom" name="nom" required value="${esc(c.nom || "")}" autocomplete="off">`)}
+      ${field("Statut", `<select id="cl-statut" name="statut">${STATUTS_CLIENT.map(([k, l]) => `<option value="${k}"${k === c.statut ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
+      ${field("Travail", `<input id="cl-travail" name="travail" value="${esc(c.travail ?? c.entreprise ?? "")}" placeholder="Emploi, entreprise">`)}
+      ${field("Horaires", `<input id="cl-horaires" name="horaires" value="${esc(c.horaires || "")}" placeholder="Ex. lun-ven 9 h-17 h, dispo le soir">`)}
       ${field("Courriel", `<input id="cl-mail" name="courriel" type="email" value="${esc(c.courriel || "")}">`)}
       ${field("Téléphone", `<input id="cl-tel" name="telephone" type="tel" value="${esc(c.telephone || "")}">`)}
-      ${field("Source", `<input id="cl-src" name="source" list="dl-src" value="${esc(c.source || "")}" placeholder="Référence, site web…">`)}
+      ${field("Salaire annuel", `<input id="cl-salaire" name="salaireAnnuel" inputmode="decimal" value="${esc(montantOuVide(c.salaireAnnuel))}" placeholder="0,00">`)}
+      ${field("Argent de côté", `<input id="cl-epargne" name="argentDeCote" inputmode="decimal" value="${esc(montantOuVide(c.argentDeCote))}" placeholder="0,00">`)}
+      ${field("Pain", `<textarea id="cl-pain" name="pain" placeholder="Ses problèmes, ce qui le bloque">${esc(c.pain || "")}</textarea>`, "full")}
+      ${field("Goals", `<textarea id="cl-goals" name="goals" placeholder="Ce qu'il veut atteindre">${esc(c.goals || "")}</textarea>`, "full")}
       ${field("Notes", `<textarea id="cl-notes" name="notes">${esc(c.notes || "")}</textarea>`, "full")}
-    </div>${dl("dl-src", ["Référence", "Site web", "Réseaux sociaux", "Événement", "Appel à froid"])}<p class="err-msg" id="cl-err" hidden></p></div>
+    </div>
+    <fieldset><legend>${cl ? "Ajouter un rendez-vous" : "Rendez-vous à venir (facultatif)"}</legend><div class="grid">
+      ${field("Date", `<input id="cl-rdv-date" name="rdvDate" type="date">`)}
+      ${field("Heure", `<input id="cl-rdv-heure" name="rdvHeure" type="time">`)}
+      ${field("Sujet", `<input id="cl-rdv-sujet" name="rdvSujet" placeholder="Ex. Présentation de l'offre">`, "full")}
+    </div></fieldset>
+    <p class="err-msg" id="cl-err" hidden></p></div>
     <div class="dlg-foot">${cl ? `<button type="button" class="btn danger" data-action="del-client" data-id="${esc(cl.id)}">Supprimer</button>` : ""}<span class="spacer"></span>
       <button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></form>`,
     el => { $("#cl-nom", el).focus(); $("#form-client", el).addEventListener("submit", e => { e.preventDefault(); saveClient(e.target, cl); }); });
 }
 async function saveClient(form, cl) {
-  const f = Object.fromEntries(new FormData(form)), nom = (f.nom || "").trim();
+  const f = Object.fromEntries(new FormData(form)), nom = (f.nom || "").trim(), tx = k => (f[k] || "").trim();
   if (!nom) return showErr("#cl-err", "Indique le nom du client.");
   const dup = [...S.clients.values()].find(x => x.nom.toLowerCase() === nom.toLowerCase() && x.id !== cl?.id);
   if (dup) return showErr("#cl-err", "Un client porte déjà ce nom.");
-  const body = { ...(cl || {}), nom, entreprise: f.entreprise.trim(), statut: f.statut, courriel: f.courriel.trim(), telephone: f.telephone.trim(),
-                 source: f.source.trim(), notes: f.notes.trim(), creeLe: cl?.creeLe || today() };
-  delete body.id;
-  await write(async () => { const ref = cl ? S.db.collection("clients").doc(cl.id) : S.db.collection("clients").doc(); await ref.set(body); }, cl ? "Client mis à jour" : "Client ajouté");
+  const montant = k => { if (!tx(k)) return null; const v = num(tx(k)); return isNaN(v) || v < 0 ? NaN : r2(v); };
+  const salaire = montant("salaireAnnuel"), epargne = montant("argentDeCote");
+  if (Number.isNaN(salaire)) return showErr("#cl-err", "Le salaire annuel doit être un montant, par exemple 65 000.");
+  if (Number.isNaN(epargne)) return showErr("#cl-err", "L'argent de côté doit être un montant, par exemple 12 000.");
+  if ((tx("rdvHeure") || tx("rdvSujet")) && !tx("rdvDate")) return showErr("#cl-err", "Indique la date du rendez-vous.");
+  const body = { ...(cl || {}), nom, statut: f.statut, travail: tx("travail"), horaires: tx("horaires"), courriel: tx("courriel"), telephone: tx("telephone"),
+                 salaireAnnuel: salaire, argentDeCote: epargne, pain: tx("pain"), goals: tx("goals"), notes: tx("notes"), creeLe: cl?.creeLe || today() };
+  delete body.id; delete body.entreprise;
+  await write(async () => {
+    const ref = cl ? S.db.collection("clients").doc(cl.id) : S.db.collection("clients").doc();
+    await ref.set(body);
+    if (tx("rdvDate")) await S.db.collection("suivis").doc().set({ clientId: ref.id, venteId: "", type: "rencontre", sujet: tx("rdvSujet") || `Rendez-vous avec ${nom}`,
+      datePrevue: tx("rdvDate"), heure: tx("rdvHeure"), statut: "a_faire", priorite: "normale", recurrenceJours: null, resultat: "", dateRealisee: "", creeLe: today() });
+  }, cl ? "Client mis à jour" : "Client ajouté");
 }
 async function ensureClient(nom) {
   const ex = [...S.clients.values()].find(x => x.nom.toLowerCase() === nom.toLowerCase());
   if (ex) return ex.id;
   const ref = S.db.collection("clients").doc();
-  await ref.set({ nom, statut: "actif", entreprise: "", courriel: "", telephone: "", source: "", notes: "", creeLe: today() });
+  await ref.set({ nom, statut: "actif", travail: "", horaires: "", courriel: "", telephone: "", salaireAnnuel: null, argentDeCote: null, pain: "", goals: "", notes: "", creeLe: today() });
   S.clients.set(ref.id, { id: ref.id, nom });
   return ref.id;
 }
 function ficheClient(id) {
   const cl = S.clients.get(id); if (!cl) return;
   const ventes = ventesCalc().filter(x => x.v.clientId === id).sort((a, b) => (b.v.dateVente || "").localeCompare(a.v.dateVente || ""));
-  const fus = [...S.suivis.values()].filter(s => s.clientId === id).sort(fuSort);
+  const rdvs = rdvsDe(id);
+  const fus = [...S.suivis.values()].filter(s => s.clientId === id && !rdvs.includes(s)).sort(fuSort);
+  const texte = (titre, val) => `<div><h3 style="margin-bottom:6px">${titre}</h3><p style="margin:0;white-space:pre-wrap"${val ? "" : ' class="muted"'}>${esc(val || "—")}</p></div>`;
+  const argent = v => (v === null || v === undefined || v === "") ? "—" : money(v, "CAD");
   openDlg(`<div class="dlg">${head(cl.nom)}<div class="dlg-body">
-    <dl class="facts"><div><dt>Entreprise</dt><dd>${esc(cl.entreprise || "—")}</dd></div><div><dt>Statut</dt><dd>${esc({ prospect: "Prospect", actif: "Actif", inactif: "Inactif", perdu: "Perdu" }[cl.statut] || "—")}</dd></div>
-      <div><dt>Courriel</dt><dd>${esc(cl.courriel || "—")}</dd></div><div><dt>Téléphone</dt><dd>${esc(cl.telephone || "—")}</dd></div>
-      <div><dt>Source</dt><dd>${esc(cl.source || "—")}</dd></div><div><dt>Client depuis</dt><dd>${esc(fmtDate(cl.creeLe) || "—")}</dd></div></dl>
-    ${cl.notes ? `<p style="margin:0;white-space:pre-wrap">${esc(cl.notes)}</p>` : ""}
+    <dl class="facts">
+      <div><dt>Statut</dt><dd>${esc(Object.fromEntries(STATUTS_CLIENT)[cl.statut] || "—")}</dd></div>
+      <div><dt>Travail</dt><dd>${esc(cl.travail || cl.entreprise || "—")}</dd></div>
+      <div><dt>Horaires</dt><dd>${esc(cl.horaires || "—")}</dd></div>
+      <div><dt>Courriel</dt><dd>${esc(cl.courriel || "—")}</dd></div>
+      <div><dt>Téléphone</dt><dd>${esc(cl.telephone || "—")}</dd></div>
+      <div><dt>Salaire annuel</dt><dd class="num">${esc(argent(cl.salaireAnnuel))}</dd></div>
+      <div><dt>Argent de côté</dt><dd class="num">${esc(argent(cl.argentDeCote))}</dd></div>
+      <div><dt>Client depuis</dt><dd>${esc(fmtDate(cl.creeLe) || "—")}</dd></div>
+    </dl>
+    <div class="grid">${texte("Pain", cl.pain)}${texte("Goals", cl.goals)}</div>
+    ${texte("Notes", cl.notes)}
+    <div><div class="section-head"><h3>Rendez-vous à venir</h3><span class="spacer"></span><button class="btn sm" data-action="new-rdv" data-client="${esc(id)}"${dis()}>Planifier un RDV</button></div>
+    <div class="panel">${rdvs.length ? `<div class="fu-list">${rdvs.map(fuRow).join("")}</div>` : `<div class="empty"><p>Aucun rendez-vous prévu.</p></div>`}</div></div>
     <div><div class="section-head"><h3>Ventes</h3><span class="spacer"></span><button class="btn sm" data-action="new-vente" data-client="${esc(id)}"${dis()}>Nouvelle vente</button></div>
     <div class="panel">${ventes.length ? `<div class="tscroll"><table><thead><tr><th>Transaction</th><th class="r">REV</th><th class="r">Payé</th><th class="r">Solde</th><th class="r">Commission</th><th>État</th></tr></thead><tbody>
       ${ventes.map(({ v, c }) => `<tr class="click${v.annulee ? " cancel" : ""}" data-action="open-vente" data-id="${esc(v.id)}"><td>${esc(v.nom)}<span class="sub">${esc(v.statut || "")}</span></td><td class="r num">${esc(money(c.rev, v.devise))}</td><td class="r num">${esc(money(c.paye, v.devise))}</td><td class="r num">${esc(money(c.diff, v.devise))}</td><td class="r num">${esc(money(c.commission, v.devise))}</td><td>${chip(c.etat)}</td></tr>`).join("")}
       </tbody></table></div>` : `<div class="empty"><p>Aucune vente pour ce client.</p></div>`}</div></div>
-    <div><div class="section-head"><h3>Suivis</h3><span class="spacer"></span><button class="btn sm" data-action="new-suivi" data-client="${esc(id)}"${dis()}>Ajouter un suivi</button></div>
+    <div><div class="section-head"><h3>Autres suivis</h3><span class="spacer"></span><button class="btn sm" data-action="new-suivi" data-client="${esc(id)}"${dis()}>Ajouter un suivi</button></div>
     <div class="panel">${fus.length ? `<div class="fu-list">${fus.map(fuRow).join("")}</div>` : `<div class="empty"><p>Aucun suivi.</p></div>`}</div></div>
   </div><div class="dlg-foot"><span class="spacer"></span><button class="btn" data-action="edit-client" data-id="${esc(id)}"${dis()}>Modifier la fiche</button></div></div>`);
 }
@@ -1011,17 +1052,19 @@ function formPaiement(venteId, montant) {
 
 /* ----- Suivi */
 function formSuivi(s, preset = {}) {
-  const x = s || { type: "follow_up", priorite: "normale", datePrevue: addDays(today(), 1), clientId: preset.clientId || "", venteId: preset.venteId || "" };
+  const x = s || { type: preset.type || "follow_up", priorite: "normale", datePrevue: addDays(today(), 1), clientId: preset.clientId || "", venteId: preset.venteId || "",
+                   sujet: preset.type === "rencontre" && preset.clientId ? `Rendez-vous avec ${clientName(preset.clientId)}` : "" };
   const clients = [...S.clients.values()].sort(byName);
   if (!clients.length) { toast("Ajoute d'abord un client.", true); return; }
   const ventesOpts = cid => `<option value="">Aucune</option>` + [...S.ventes.values()].filter(v => v.clientId === cid).map(v => `<option value="${esc(v.id)}"${v.id === x.venteId ? " selected" : ""}>${esc(v.nom)}</option>`).join("");
-  openDlg(`<form class="dlg" id="form-suivi" novalidate>${head(s ? "Modifier le suivi" : "Nouveau suivi")}
+  openDlg(`<form class="dlg" id="form-suivi" novalidate>${head(s ? "Modifier le suivi" : x.type === "rencontre" ? "Nouveau rendez-vous" : "Nouveau suivi")}
     <div class="dlg-body"><div class="grid">
       ${field("Client", `<select id="s-client" name="clientId">${clients.map(c => `<option value="${esc(c.id)}"${c.id === x.clientId ? " selected" : ""}>${esc(c.nom)}</option>`).join("")}</select>`)}
       ${field("Vente liée", `<select id="s-vente" name="venteId">${ventesOpts(x.clientId || clients[0].id)}</select>`)}
       ${field("Sujet", `<input id="s-sujet" name="sujet" value="${esc(x.sujet || "")}" placeholder="Ex. Rappeler pour la soumission">`, "full")}
       ${field("Type", `<select id="s-type" name="type">${Object.entries(TYPES_SUIVI).map(([k, l]) => `<option value="${k}"${k === x.type ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
       ${field("Date prévue", `<input id="s-date" name="datePrevue" type="date" value="${esc(x.datePrevue || "")}">`)}
+      ${field("Heure (facultatif)", `<input id="s-heure" name="heure" type="time" value="${esc(x.heure || "")}">`)}
       ${field("Priorité", `<select id="s-prio" name="priorite">${[["basse", "Basse"], ["normale", "Normale"], ["haute", "Haute"]].map(([k, l]) => `<option value="${k}"${k === x.priorite ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
       ${field("Répéter tous les … jours", `<input id="s-rec" name="recurrenceJours" type="number" min="1" step="1" value="${x.recurrenceJours || ""}" placeholder="Non">`, "", "Le suivi se recrée quand tu le marques fait.")}
       ${s ? field("Résultat", `<textarea id="s-res" name="resultat">${esc(x.resultat || "")}</textarea>`, "full") : ""}
@@ -1037,7 +1080,7 @@ function formSuivi(s, preset = {}) {
         const f = Object.fromEntries(new FormData(form));
         if (!f.sujet.trim()) return showErr("#s-err", "Indique le sujet du suivi.");
         const rec = Math.floor(num(f.recurrenceJours));
-        const body = { ...(s || {}), clientId: f.clientId, venteId: f.venteId || "", type: f.type, sujet: f.sujet.trim(), datePrevue: f.datePrevue || "", priorite: f.priorite,
+        const body = { ...(s || {}), clientId: f.clientId, venteId: f.venteId || "", type: f.type, sujet: f.sujet.trim(), datePrevue: f.datePrevue || "", heure: f.heure || "", priorite: f.priorite,
                        recurrenceJours: rec > 0 ? rec : null, resultat: (f.resultat ?? s?.resultat ?? "").trim(), statut: s?.statut || "a_faire", dateRealisee: s?.dateRealisee || "", creeLe: s?.creeLe || today() };
         delete body.id;
         await write(() => (s ? S.db.collection("suivis").doc(s.id) : S.db.collection("suivis").doc()).set(body), s ? "Suivi mis à jour" : "Suivi ajouté");
@@ -1190,6 +1233,7 @@ document.addEventListener("click", e => {
     case "open-vente": ficheVente(id); break;
     case "new-paiement": formPaiement(id, el.dataset.montant ? Number(el.dataset.montant) : undefined); break;
     case "new-suivi": formSuivi(null, { clientId: el.dataset.client }); break;
+    case "new-rdv": formSuivi(null, { clientId: el.dataset.client, type: "rencontre" }); break;
     case "edit-suivi": formSuivi(S.suivis.get(id)); break;
     case "fait": marquerFait(id); break;
     case "relances": creerRelances(); break;
