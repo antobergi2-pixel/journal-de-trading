@@ -201,6 +201,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 .rdv-quand { font-size: .88rem; color: var(--accent); font-weight: 500; }
 .rdv .toolbar { margin-top: 6px; }
 a.btn { text-decoration: none; color: inherit; }
+.resume-client { background: var(--accent-soft); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 10px; justify-items: start; }
 .banner.alerte { background: var(--accent-soft); border-color: var(--accent); }
 nav.tabs .court { display: none; }
 
@@ -270,7 +271,7 @@ nav.tabs .court { display: none; }
 "use strict";
 /* =====================================================================
    Données : 4 collections dans la base de la page (capacité db)
-     clients   {nom, statut, travail, horaires, courriel, telephone, salaireAnnuel, argentDeCote, pain, goals, notes, creeLe}
+     clients   {nom, statut, travail, horaires, courriel, telephone, salaireAnnuel, argentDeCote, pain, goals, notes, resume, lienLetmetalk, creeLe}
      ventes    {nom, clientId, type, statut, premierContact, dateVente, rev, devise, methode,
                 tauxCommission, plan:{mode, nb, mensualite, premierVersement, fin}, annulee, notes, creeLe}
      paiements {venteId, date, montant, methode, reference, creeLe}
@@ -553,7 +554,7 @@ function viewClients() {
   <div class="panel">${!list.length ? `<div class="empty"><h3>Aucun client pour l'instant</h3><p>Chaque fiche garde son travail, ses horaires, son pain, ses goals, ses finances et ses rendez-vous, avec ses ventes et ses suivis.</p><button class="btn primary" data-action="new-client"${dis()}>Ajouter mon premier client</button></div>` : `<div class="tscroll"><table>
     <thead><tr><th>Client</th><th>Statut</th><th>Coordonnées</th><th>Horaires</th><th class="r">Salaire annuel</th><th class="r">Argent de côté</th><th>Prochain RDV</th><th class="r">Solde dû</th></tr></thead>
     <tbody>${list.map(cl => { const t = soldeClient(cl.id), rdv = rdvsDe(cl.id)[0];
-      return `<tr class="click" data-action="open-client" data-id="${esc(cl.id)}"><td><strong>${esc(cl.nom)}</strong>${(cl.travail || cl.entreprise) ? `<span class="sub">${esc(cl.travail || cl.entreprise)}</span>` : ""}</td>
+      return `<tr class="click" data-action="open-client" data-id="${esc(cl.id)}"><td><strong>${esc(cl.nom)}</strong>${(cl.travail || cl.entreprise) ? `<span class="sub">${esc(cl.travail || cl.entreprise)}</span>` : ""}${cl.resume ? `<span class="sub" style="max-width:32ch">${esc(cl.resume.length > 90 ? cl.resume.slice(0, 88) + "…" : cl.resume)}</span>` : ""}</td>
       <td>${statutChip(cl.statut)}</td><td class="small">${esc(cl.courriel || "")}${cl.telephone ? `<span class="sub">${esc(cl.telephone)}</span>` : ""}</td>
       <td class="small">${esc(cl.horaires || "")}</td>
       <td class="r num">${esc(argent(cl.salaireAnnuel))}</td><td class="r num">${esc(argent(cl.argentDeCote))}</td>
@@ -928,6 +929,8 @@ function formClient(cl) {
       ${field("Téléphone", `<input id="cl-tel" name="telephone" type="tel" value="${esc(c.telephone || "")}">`)}
       ${field("Salaire annuel", `<input id="cl-salaire" name="salaireAnnuel" inputmode="decimal" value="${esc(montantOuVide(c.salaireAnnuel))}" placeholder="0,00">`)}
       ${field("Argent de côté", `<input id="cl-epargne" name="argentDeCote" inputmode="decimal" value="${esc(montantOuVide(c.argentDeCote))}" placeholder="0,00">`)}
+      ${field("Résumé du client", `<textarea id="cl-resume" name="resume" placeholder="2-3 lignes pour te rappeler qui il est">${esc(c.resume || "")}</textarea>`, "full")}
+      ${field("Lien de la conversation Letmetalk", `<input id="cl-lmt" name="lienLetmetalk" type="url" inputmode="url" value="${esc(c.lienLetmetalk || "")}" placeholder="https://…">`, "full")}
       ${field("Pain", `<textarea id="cl-pain" name="pain" placeholder="Ses problèmes, ce qui le bloque">${esc(c.pain || "")}</textarea>`, "full")}
       ${field("Goals", `<textarea id="cl-goals" name="goals" placeholder="Ce qu'il veut atteindre">${esc(c.goals || "")}</textarea>`, "full")}
       ${field("Notes", `<textarea id="cl-notes" name="notes">${esc(c.notes || "")}</textarea>`, "full")}
@@ -951,11 +954,12 @@ async function saveClient(form, cl) {
   const salaire = montant("salaireAnnuel"), epargne = montant("argentDeCote");
   if (Number.isNaN(salaire)) return showErr("#cl-err", "Le salaire annuel doit être un montant, par exemple 65 000.");
   if (Number.isNaN(epargne)) return showErr("#cl-err", "L'argent de côté doit être un montant, par exemple 12 000.");
+  if (tx("lienLetmetalk") && !/^https:\/\/\S+$/i.test(tx("lienLetmetalk"))) return showErr("#cl-err", "Le lien Letmetalk doit commencer par https://");
   if ((tx("rdvHeure") || tx("rdvSujet") || tx("cl-rdv-closer")) && !tx("rdvDate")) return showErr("#cl-err", "Indique la date du rendez-vous.");
   const rappelsCl = lireRappels(form, "cl-rdv-");
   if (tx("rdvDate") && rappelsCl.length && !tx("rdvHeure")) return showErr("#cl-err", "Indique l'heure du rendez-vous pour que les rappels sonnent au bon moment.");
   const body = { ...(cl || {}), nom, statut: f.statut, travail: tx("travail"), horaires: tx("horaires"), courriel: tx("courriel"), telephone: tx("telephone"),
-                 salaireAnnuel: salaire, argentDeCote: epargne, pain: tx("pain"), goals: tx("goals"), notes: tx("notes"), creeLe: cl?.creeLe || today() };
+                 salaireAnnuel: salaire, argentDeCote: epargne, pain: tx("pain"), goals: tx("goals"), notes: tx("notes"), resume: tx("resume"), lienLetmetalk: tx("lienLetmetalk"), creeLe: cl?.creeLe || today() };
   delete body.id; delete body.entreprise;
   await write(async () => {
     const ref = cl ? S.db.collection("clients").doc(cl.id) : S.db.collection("clients").doc();
@@ -979,7 +983,10 @@ function ficheClient(id) {
   const fus = [...S.suivis.values()].filter(s => s.clientId === id && !rdvs.includes(s)).sort(fuSort);
   const texte = (titre, val) => `<div><h3 style="margin-bottom:6px">${titre}</h3><p style="margin:0;white-space:pre-wrap"${val ? "" : ' class="muted"'}>${esc(val || "—")}</p></div>`;
   const argent = v => (v === null || v === undefined || v === "") ? "—" : money(v, "CAD");
+  const lienOk = /^https:\/\/\S+$/i.test(cl.lienLetmetalk || "");
   openDlg(`<div class="dlg">${head(cl.nom)}<div class="dlg-body">
+    ${cl.resume || lienOk ? `<div class="resume-client">${cl.resume ? `<p style="margin:0;white-space:pre-wrap">${esc(cl.resume)}</p>` : ""}
+      ${lienOk ? `<a class="btn primary" href="${esc(cl.lienLetmetalk)}" target="_blank" rel="noopener noreferrer">Ouvrir la conversation Letmetalk</a>` : ""}</div>` : ""}
     <dl class="facts">
       <div><dt>Statut</dt><dd>${esc(Object.fromEntries(STATUTS_CLIENT)[cl.statut] || "—")}</dd></div>
       <div><dt>Travail</dt><dd>${esc(cl.travail || cl.entreprise || "—")}</dd></div>

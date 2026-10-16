@@ -29,7 +29,7 @@ En début de session, ou quand l'utilisateur demande « quoi faire aujourd'hui �
 L'utilisateur remplit lui-même ses données sur le site : https://claude.ai/artifact/4wvZNQfJnyVpusE1YakU1N
 - Code source : `site/index.html`. Pour le modifier, éditer ce fichier et le republier avec l'outil Artifact en passant cette URL comme `url`.
 - Les données vivent dans la base de l'artifact : collections `clients`, `ventes`, `paiements`, `suivis`. Elles se lisent et s'écrivent avec l'outil `ArtifactData` (même URL). La forme des documents est décrite en tête du script de `site/index.html`.
-- Fiche client voulue par l'utilisateur : nom, statut, travail, horaires, pain, goals, courriel, téléphone, salaire annuel, argent de côté (montants en CAD, `null` si inconnus), notes, et ses **rendez-vous à venir**. Les RDV sont des `suivis` de type `rencontre`, avec `datePrevue`, `heure` (HH:MM), `closer` (la personne avec qui le client a rendez-vous) et `rappels` (minutes avant le RDV ; par défaut 1 jour, 5 h et 30 min, soit `[1440, 300, 30]`, modifiables par RDV). Les rappels sonnent sur l'iPhone via le fichier calendrier `/api/ics/<id>.ics` (version Cloudflare), et s'affichent en alerte dans l'application.
+- Fiche client voulue par l'utilisateur : nom, statut, travail, horaires, pain, goals, courriel, téléphone, salaire annuel, argent de côté (montants en CAD, `null` si inconnus), notes, `resume` (2-3 lignes pour se rappeler le client), `lienLetmetalk` (lien vers la fiche ou la conversation du client sur app.letmetalk.ai), et ses **rendez-vous à venir**. Les RDV sont des `suivis` de type `rencontre`, avec `datePrevue`, `heure` (HH:MM), `closer` (la personne avec qui le client a rendez-vous) et `rappels` (minutes avant le RDV ; par défaut 1 jour, 5 h et 30 min, soit `[1440, 300, 30]`, modifiables par RDV). Les rappels sonnent sur l'iPhone via le fichier calendrier `/api/ics/<id>.ics` (version Cloudflare), et s'affichent en alerte dans l'application.
 - Les règles d'accès (lecture et écriture au niveau `admin`) rendent les données invisibles à toute personne qui n'est pas propriétaire ou éditeur, même si le lien est partagé.
 - Les montants calculés (payé, différence, dû ce mois, commissions, État) ne sont jamais stockés : le site les calcule à partir des ventes, des plans et des paiements.
 - La copie de sécurité se fait depuis l'onglet Sauvegarde du site (fichier .json téléchargé). L'outil en ligne de commande de `crm/` reste disponible, mais il a sa propre base, distincte de celle du site.
@@ -43,6 +43,10 @@ L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout es
 - Ne jamais committer l'adresse courriel ni les identifiants Cloudflare : le dépôt est public. Le script les écrit seulement dans `cloudflare/.deploiement/`, qui est ignoré par Git.
 - Après toute modification de `site/index.html` : republier l'artifact claude.ai ET relancer `deployer.sh`.
 - Le site Cloudflare est aussi l'**application téléphone** de l'utilisateur (application web installable : `cloudflare/pwa/`, ajoutée à l'écran d'accueil). Si la page ou les fichiers mis en cache changent de façon importante, incrémenter `CACHE` dans `pwa/sw.js`.
+
+## Import de clients
+
+L'utilisateur peut envoyer un dossier ou un export Letmetalk (CSV : nom, téléphone, courriel, date de création, dernière activité, étiquette, lien) pour créer ses clients. Écrire directement dans D1 avec l'API Cloudflare (`/d1/database/<uuid>/query`, collection `clients`), sans doublon : un client existant (même nom) est complété, jamais écrasé. Le résumé ne contient que ce que le dossier dit : ne rien inventer. Ces données ne vont jamais dans le dépôt.
 
 ## Factures Letmetalk (onglet Factures du site)
 
