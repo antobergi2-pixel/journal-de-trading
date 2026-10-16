@@ -193,9 +193,47 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 #toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: .9rem; box-shadow: var(--shadow); z-index: 50; max-width: calc(100vw - 32px); }
 #toast.bad { background: var(--bad); color: var(--surface); }
 
+/* ---------- Rendez-vous */
+.rdv-grille { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+.rdv { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 4px; align-content: start; min-width: 0; }
+.rdv .rdv-client { font-family: var(--f-display); font-size: 1.08rem; font-weight: 700; text-decoration: none; color: var(--fg); justify-self: start; text-align: left; min-height: 0; }
+.rdv-avec { font-size: .92rem; }
+.rdv-quand { font-size: .88rem; color: var(--accent); font-weight: 500; }
+.rdv .toolbar { margin-top: 6px; }
+a.btn { text-decoration: none; color: inherit; }
+.banner.alerte { background: var(--accent-soft); border-color: var(--accent); }
+nav.tabs .court { display: none; }
+
 @media (max-width: 640px) {
-  nav.tabs { margin-left: 0; width: 100%; }
-  .kpi .value { font-size: 1.25rem; }
+  /* barre d'onglets en bas, comme une application */
+  nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; margin: 0; width: 100%; max-width: none; gap: 0;
+             background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  nav.tabs button { flex: 1 0 auto; padding: 11px 6px 13px; font-size: .78rem; border-bottom: 0; border-top: 3px solid transparent; }
+  nav.tabs button[aria-selected="true"] { border-top-color: var(--accent); }
+  nav.tabs .long { display: none; }
+  nav.tabs .court { display: inline; }
+  nav.tabs .count { margin-left: 2px; }
+  .brand { padding-bottom: 10px; width: 100%; justify-content: space-between; }
+  .brand h1 { font-size: 1.08rem; white-space: nowrap; }
+  .sync { font-size: .72rem; white-space: nowrap; }
+  .top-in { padding-top: 10px; }
+  main { gap: 22px; padding-top: 16px; }
+  .kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi { padding: 10px 12px; }
+  .kpi .label { font-size: .66rem; }
+  .kpi .sub { display: none; }
+  .wrap { padding-block: 0 calc(84px + env(safe-area-inset-bottom, 0px)); }
+  #toast { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  /* champs à 16 px : l'iPhone ne zoome plus quand on tape */
+  input, select, textarea { font-size: 16px !important; }
+  /* fenêtres en plein écran */
+  dialog { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border: 0; }
+  .dlg { max-height: 100dvh; height: 100dvh; }
+  .dlg-head { padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
+  .dlg-foot { border-radius: 0; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .btn:not(.link) { min-height: 38px; }
+  .btn.sm:not(.link) { min-height: 34px; }
+  .kpi .value { font-size: 1.05rem; }
   .fu { grid-template-columns: 1fr auto; }
   .fu .when { grid-column: 1 / -1; }
 }
@@ -211,12 +249,12 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       <span id="sync" class="sync">Connexion…</span>
     </div>
     <nav class="tabs" id="tabs" role="tablist" aria-label="Sections">
-      <button role="tab" data-tab="tableau">Tableau de bord</button>
+      <button role="tab" data-tab="tableau"><span class="long">Tableau de bord</span><span class="court">Accueil</span></button>
       <button role="tab" data-tab="ventes">Ventes<span class="count" id="c-ventes"></span></button>
       <button role="tab" data-tab="clients">Clients<span class="count" id="c-clients"></span></button>
       <button role="tab" data-tab="suivis">Suivis<span class="count" id="c-suivis"></span></button>
       <button role="tab" data-tab="factures">Factures<span class="count" id="c-factures"></span></button>
-      <button role="tab" data-tab="sauvegarde">Sauvegarde</button>
+      <button role="tab" data-tab="sauvegarde"><span class="long">Sauvegarde</span><span class="court">Copies</span></button>
     </nav>
   </div>
 </header>
@@ -411,9 +449,15 @@ function viewTableau() {
   for (const { v, c } of list) for (const e of c.plan) if (e.reste > 0.005 && (e.etat === "En retard" || e.etat === "Ce mois")) versements.push({ v, c, e });
   versements.sort((a, b) => a.e.date.localeCompare(b.e.date));
   const t = today(), semaine = addDays(t, 7);
-  const fus = [...S.suivis.values()].filter(s => s.statut === "a_faire" && s.datePrevue && s.datePrevue <= semaine).sort(fuSort);
+  const fus = [...S.suivis.values()].filter(s => s.statut === "a_faire" && s.type !== "rencontre" && s.datePrevue && s.datePrevue <= semaine).sort(fuSort);
   const sansRelance = list.filter(({ v, c }) => c.retard > 0.005 && ![...S.suivis.values()].some(s => s.venteId === v.id && s.type === "relance_paiement" && s.statut === "a_faire"));
-  return `${rappelFactures()}
+  const rdvs = rdvsAVenir(7);
+  return `${alertesRdv()}${rappelFactures()}
+  <section>
+    <div class="section-head"><h3>Rendez-vous des 7 prochains jours</h3><span class="spacer"></span>
+      <button class="btn sm" data-action="new-rdv"${dis()}>Planifier un RDV</button></div>
+    ${rdvs.length ? `<div class="rdv-grille">${rdvs.map(carteRdv).join("")}</div>` : `<div class="panel"><div class="empty"><p>Aucun rendez-vous cette semaine.</p></div></div>`}
+  </section>
   <section>
     <div class="section-head"><h2>${esc(moisNom.charAt(0).toUpperCase() + moisNom.slice(1))}</h2><span class="spacer"></span>
       <button class="btn" data-action="new-client"${dis()}>Nouveau client</button>
@@ -525,7 +569,7 @@ function fuRow(s) {
   return `<div class="fu${late ? " late" : ""}${s.statut === "fait" ? " done" : ""}">
     <span class="when">${s.datePrevue === t ? "Aujourd'hui" : esc(fmtDate(s.datePrevue) || "Sans date")}${s.heure ? `<br>${esc(s.heure.replace(":", " h "))}` : ""}</span>
     <span class="what"><span class="${s.priorite === "haute" ? "prio-haute" : ""}">${esc(s.sujet)}</span>
-      <span class="sub">${esc(TYPES_SUIVI[s.type] || s.type)} · <button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">${esc(clientName(s.clientId))}</button>${v ? ` · ${esc(v.nom)}` : ""}${s.recurrenceJours ? ` · tous les ${s.recurrenceJours} jours` : ""}${s.resultat ? ` · ${esc(s.resultat)}` : ""}</span></span>
+      <span class="sub">${esc(TYPES_SUIVI[s.type] || s.type)} · <button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">${esc(clientName(s.clientId))}</button>${v ? ` · ${esc(v.nom)}` : ""}${s.closer ? ` · avec ${esc(s.closer)}` : ""}${s.recurrenceJours ? ` · tous les ${s.recurrenceJours} jours` : ""}${s.resultat ? ` · ${esc(s.resultat)}` : ""}</span></span>
     <span class="toolbar">${s.statut === "a_faire" ? `<button class="btn sm" data-action="fait" data-id="${esc(s.id)}"${dis()}>Fait</button>` : ""}<button class="btn sm" data-action="edit-suivi" data-id="${esc(s.id)}"${dis()}>Modifier</button></span></div>`;
 }
 function viewSuivis() {
@@ -808,6 +852,70 @@ const montantOuVide = v => (v === null || v === undefined || v === "" || isNaN(v
 const rdvsDe = id => [...S.suivis.values()].filter(s => s.clientId === id && s.type === "rencontre" && s.statut === "a_faire" && s.datePrevue && s.datePrevue >= today())
   .sort((a, b) => `${a.datePrevue} ${a.heure || ""}`.localeCompare(`${b.datePrevue} ${b.heure || ""}`));
 const quandRdv = s => `${fmtDate(s.datePrevue)}${s.heure ? ` à ${s.heure.replace(":", " h ")}` : ""}`;
+// Rappels d'un RDV, en minutes avant le début (1 jour, 5 h et 30 min par défaut)
+const RAPPELS_DEFAUT = [1440, 300, 30];
+const RAPPELS_CHOIX = [1440, 300, 60, 30];
+const libRappel = m => m % 1440 === 0 ? `${m / 1440} jour${m > 1440 ? "s" : ""}` : m % 60 === 0 ? `${m / 60} h` : `${m} min`;
+const rappelsDe = s => Array.isArray(s.rappels) ? s.rappels : (s.type === "rencontre" ? RAPPELS_DEFAUT : []);
+const debutRdv = s => s.datePrevue && s.heure ? new Date(`${s.datePrevue}T${s.heure}:00`) : null;
+const closers = () => [...new Set([...S.suivis.values()].map(s => (s.closer || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
+function champsRdv(prefixe, x = {}) {
+  const actifs = new Set(rappelsDe({ type: "rencontre", ...x }));
+  const choix = [...new Set([...RAPPELS_CHOIX, ...actifs])].sort((a, b) => b - a);
+  return `<div class="grid">
+      ${field("Closer (avec qui)", `<input id="${prefixe}closer" name="${prefixe}closer" list="dl-closers" value="${esc(x.closer || "")}" placeholder="Nom du closer">`, "full")}
+    </div>
+    <div class="field"><span>Me rappeler avant le RDV</span>
+      <div class="radios" id="${prefixe}rappels">${choix.map(m => `<label><input type="checkbox" name="${prefixe}rappel" value="${m}"${actifs.has(m) ? " checked" : ""}> ${libRappel(m)}</label>`).join("")}</div>
+      <div class="toolbar" style="margin-top:6px"><span class="small muted">Autre :</span>
+        <input id="${prefixe}autre-n" type="number" min="1" step="1" inputmode="numeric" style="width:84px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)" aria-label="Délai du rappel">
+        <select id="${prefixe}autre-u" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)" aria-label="Unité"><option value="1">min</option><option value="60" selected>h</option><option value="1440">jours</option></select>
+        <button type="button" class="btn sm" data-action="rappel-ajout" data-prefixe="${prefixe}">Ajouter</button></div>
+    </div>${dl("dl-closers", closers())}`;
+}
+function lireRappels(form, prefixe) {
+  return [...new Set([...form.querySelectorAll(`input[name="${prefixe}rappel"]:checked`)].map(i => Number(i.value)).filter(m => m > 0))].sort((a, b) => b - a);
+}
+function ajouterRappel(prefixe) {
+  const n = Math.floor(num($(`#${prefixe}autre-n`)?.value)), u = Number($(`#${prefixe}autre-u`)?.value || 60), zone = $(`#${prefixe}rappels`);
+  if (!(n > 0) || !zone) return toast("Indique un délai, par exemple 2 h.", true);
+  const m = n * u;
+  if (m > 60 * 24 * 30) return toast("30 jours au maximum.", true);
+  const ex = zone.querySelector(`input[value="${m}"]`);
+  if (ex) ex.checked = true;
+  else zone.insertAdjacentHTML("beforeend", `<label><input type="checkbox" name="${prefixe}rappel" value="${m}" checked> ${libRappel(m)}</label>`);
+  $(`#${prefixe}autre-n`).value = "";
+}
+function carteRdv(s) {
+  const r = rappelsDe(s), cal = HEBERGE === "cloudflare"
+    ? `<a class="btn sm" href="/api/ics/${encodeURIComponent(s.id)}.ics">Ajouter au calendrier</a>`
+    : `<button class="btn sm" data-action="ics-info">Ajouter au calendrier</button>`;
+  return `<div class="rdv">
+    <button class="rdv-client btn link" data-action="open-client" data-id="${esc(s.clientId)}">${esc(clientName(s.clientId))}</button>
+    ${s.closer ? `<div class="rdv-avec">avec <strong>${esc(s.closer)}</strong></div>` : `<div class="rdv-avec muted">Closer à préciser</div>`}
+    <div class="rdv-quand num">${esc(s.datePrevue === today() ? "Aujourd'hui" : fmtDate(s.datePrevue))}${s.heure ? ` · ${esc(s.heure.replace(":", " h "))}` : ""}</div>
+    ${s.sujet ? `<div class="small">${esc(s.sujet)}</div>` : ""}
+    <div class="small muted">${r.length ? `Rappels : ${esc(r.map(libRappel).join(", "))} avant` : "Aucun rappel"}${r.length && !s.heure ? " · ajoute l'heure pour les activer" : ""}</div>
+    <div class="toolbar">${s.heure ? cal : ""}<button class="btn sm" data-action="fait" data-id="${esc(s.id)}"${dis()}>Fait</button><button class="btn sm" data-action="edit-suivi" data-id="${esc(s.id)}"${dis()}>Modifier</button></div>
+  </div>`;
+}
+const rdvsAVenir = (jours = 14) => [...S.suivis.values()].filter(s => s.type === "rencontre" && s.statut === "a_faire" && s.datePrevue && s.datePrevue >= today() && s.datePrevue <= addDays(today(), jours))
+  .sort((a, b) => `${a.datePrevue} ${a.heure || "99"}`.localeCompare(`${b.datePrevue} ${b.heure || "99"}`));
+// Alertes dans l'application : un RDV dont un rappel est passé et qui n'a pas encore commencé
+function alertesRdv() {
+  const maintenant = Date.now(), out = [];
+  for (const s of S.suivis.values()) {
+    if (s.type !== "rencontre" || s.statut !== "a_faire") continue;
+    const d = debutRdv(s); if (!d) continue;
+    const reste = (d - maintenant) / 60000;
+    if (reste <= 0 || !rappelsDe(s).some(m => reste <= m)) continue;
+    const mn = Math.max(1, Math.round(reste));
+    const dans = mn >= 1440 ? `${Math.round(mn / 1440)} jour${Math.round(mn / 1440) > 1 ? "s" : ""}` : mn >= 60 ? `${Math.floor(mn / 60)} h ${String(mn % 60).padStart(2, "0")}` : `${mn} min`;
+    out.push({ s, reste, dans });
+  }
+  return out.sort((a, b) => a.reste - b.reste).map(({ s, dans }) =>
+    `<div class="banner alerte"><strong>⏰ Rendez-vous dans ${esc(dans)} :</strong> ${esc(clientName(s.clientId))}${s.closer ? ` avec ${esc(s.closer)}` : ""}, ${esc(s.heure.replace(":", " h "))}. <button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">Voir la fiche</button></div>`).join("");
+}
 function formClient(cl) {
   const c = cl || { statut: "prospect" };
   openDlg(`<form class="dlg" id="form-client" novalidate>${head(cl ? "Modifier le client" : "Nouveau client")}
@@ -828,7 +936,7 @@ function formClient(cl) {
       ${field("Date", `<input id="cl-rdv-date" name="rdvDate" type="date">`)}
       ${field("Heure", `<input id="cl-rdv-heure" name="rdvHeure" type="time">`)}
       ${field("Sujet", `<input id="cl-rdv-sujet" name="rdvSujet" placeholder="Ex. Présentation de l'offre">`, "full")}
-    </div></fieldset>
+    </div>${champsRdv("cl-rdv-")}</fieldset>
     <p class="err-msg" id="cl-err" hidden></p></div>
     <div class="dlg-foot">${cl ? `<button type="button" class="btn danger" data-action="del-client" data-id="${esc(cl.id)}">Supprimer</button>` : ""}<span class="spacer"></span>
       <button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></form>`,
@@ -843,7 +951,9 @@ async function saveClient(form, cl) {
   const salaire = montant("salaireAnnuel"), epargne = montant("argentDeCote");
   if (Number.isNaN(salaire)) return showErr("#cl-err", "Le salaire annuel doit être un montant, par exemple 65 000.");
   if (Number.isNaN(epargne)) return showErr("#cl-err", "L'argent de côté doit être un montant, par exemple 12 000.");
-  if ((tx("rdvHeure") || tx("rdvSujet")) && !tx("rdvDate")) return showErr("#cl-err", "Indique la date du rendez-vous.");
+  if ((tx("rdvHeure") || tx("rdvSujet") || tx("cl-rdv-closer")) && !tx("rdvDate")) return showErr("#cl-err", "Indique la date du rendez-vous.");
+  const rappelsCl = lireRappels(form, "cl-rdv-");
+  if (tx("rdvDate") && rappelsCl.length && !tx("rdvHeure")) return showErr("#cl-err", "Indique l'heure du rendez-vous pour que les rappels sonnent au bon moment.");
   const body = { ...(cl || {}), nom, statut: f.statut, travail: tx("travail"), horaires: tx("horaires"), courriel: tx("courriel"), telephone: tx("telephone"),
                  salaireAnnuel: salaire, argentDeCote: epargne, pain: tx("pain"), goals: tx("goals"), notes: tx("notes"), creeLe: cl?.creeLe || today() };
   delete body.id; delete body.entreprise;
@@ -851,7 +961,7 @@ async function saveClient(form, cl) {
     const ref = cl ? S.db.collection("clients").doc(cl.id) : S.db.collection("clients").doc();
     await ref.set(body);
     if (tx("rdvDate")) await S.db.collection("suivis").doc().set({ clientId: ref.id, venteId: "", type: "rencontre", sujet: tx("rdvSujet") || `Rendez-vous avec ${nom}`,
-      datePrevue: tx("rdvDate"), heure: tx("rdvHeure"), statut: "a_faire", priorite: "normale", recurrenceJours: null, resultat: "", dateRealisee: "", creeLe: today() });
+      datePrevue: tx("rdvDate"), heure: tx("rdvHeure"), closer: tx("cl-rdv-closer"), rappels: rappelsCl, statut: "a_faire", priorite: "normale", recurrenceJours: null, resultat: "", dateRealisee: "", creeLe: today() });
   }, cl ? "Client mis à jour" : "Client ajouté");
 }
 async function ensureClient(nom) {
@@ -883,7 +993,7 @@ function ficheClient(id) {
     <div class="grid">${texte("Pain", cl.pain)}${texte("Goals", cl.goals)}</div>
     ${texte("Notes", cl.notes)}
     <div><div class="section-head"><h3>Rendez-vous à venir</h3><span class="spacer"></span><button class="btn sm" data-action="new-rdv" data-client="${esc(id)}"${dis()}>Planifier un RDV</button></div>
-    <div class="panel">${rdvs.length ? `<div class="fu-list">${rdvs.map(fuRow).join("")}</div>` : `<div class="empty"><p>Aucun rendez-vous prévu.</p></div>`}</div></div>
+    ${rdvs.length ? `<div class="rdv-grille">${rdvs.map(carteRdv).join("")}</div>` : `<div class="panel"><div class="empty"><p>Aucun rendez-vous prévu.</p></div></div>`}</div>
     <div><div class="section-head"><h3>Ventes</h3><span class="spacer"></span><button class="btn sm" data-action="new-vente" data-client="${esc(id)}"${dis()}>Nouvelle vente</button></div>
     <div class="panel">${ventes.length ? `<div class="tscroll"><table><thead><tr><th>Transaction</th><th class="r">REV</th><th class="r">Payé</th><th class="r">Solde</th><th class="r">Commission</th><th>État</th></tr></thead><tbody>
       ${ventes.map(({ v, c }) => `<tr class="click${v.annulee ? " cancel" : ""}" data-action="open-vente" data-id="${esc(v.id)}"><td>${esc(v.nom)}<span class="sub">${esc(v.statut || "")}</span></td><td class="r num">${esc(money(c.rev, v.devise))}</td><td class="r num">${esc(money(c.paye, v.devise))}</td><td class="r num">${esc(money(c.diff, v.devise))}</td><td class="r num">${esc(money(c.commission, v.devise))}</td><td>${chip(c.etat)}</td></tr>`).join("")}
@@ -1068,19 +1178,24 @@ function formSuivi(s, preset = {}) {
       ${field("Priorité", `<select id="s-prio" name="priorite">${[["basse", "Basse"], ["normale", "Normale"], ["haute", "Haute"]].map(([k, l]) => `<option value="${k}"${k === x.priorite ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
       ${field("Répéter tous les … jours", `<input id="s-rec" name="recurrenceJours" type="number" min="1" step="1" value="${x.recurrenceJours || ""}" placeholder="Non">`, "", "Le suivi se recrée quand tu le marques fait.")}
       ${s ? field("Résultat", `<textarea id="s-res" name="resultat">${esc(x.resultat || "")}</textarea>`, "full") : ""}
-    </div><p class="err-msg" id="s-err" hidden></p></div>
+    </div>
+    <fieldset id="s-rdv"${x.type === "rencontre" ? "" : " hidden"}><legend>Rendez-vous</legend>${champsRdv("s-", x)}</fieldset>
+    <p class="err-msg" id="s-err" hidden></p></div>
     <div class="dlg-foot">${s ? `<button type="button" class="btn danger" data-action="del-suivi" data-id="${esc(s.id)}">Supprimer</button>` : ""}<span class="spacer"></span>
       <button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></form>`,
     el => {
       const form = $("#form-suivi", el);
       form.clientId.addEventListener("change", () => { form.venteId.innerHTML = ventesOpts(form.clientId.value); });
+      form.type.addEventListener("change", () => { $("#s-rdv").hidden = form.type.value !== "rencontre"; });
       form.sujet.focus();
       form.addEventListener("submit", async e => {
         e.preventDefault();
         const f = Object.fromEntries(new FormData(form));
         if (!f.sujet.trim()) return showErr("#s-err", "Indique le sujet du suivi.");
-        const rec = Math.floor(num(f.recurrenceJours));
-        const body = { ...(s || {}), clientId: f.clientId, venteId: f.venteId || "", type: f.type, sujet: f.sujet.trim(), datePrevue: f.datePrevue || "", heure: f.heure || "", priorite: f.priorite,
+        const rec = Math.floor(num(f.recurrenceJours)), estRdv = f.type === "rencontre", rappels = estRdv ? lireRappels(form, "s-") : [];
+        if (estRdv && !f.datePrevue) return showErr("#s-err", "Indique la date du rendez-vous.");
+        if (estRdv && rappels.length && !f.heure) return showErr("#s-err", "Indique l'heure du rendez-vous pour que les rappels sonnent au bon moment.");
+        const body = { ...(s || {}), clientId: f.clientId, venteId: f.venteId || "", type: f.type, sujet: f.sujet.trim(), datePrevue: f.datePrevue || "", heure: f.heure || "", closer: estRdv ? (f["s-closer"] || "").trim() : (s?.closer || ""), rappels: estRdv ? rappels : (s?.rappels ?? null), priorite: f.priorite,
                        recurrenceJours: rec > 0 ? rec : null, resultat: (f.resultat ?? s?.resultat ?? "").trim(), statut: s?.statut || "a_faire", dateRealisee: s?.dateRealisee || "", creeLe: s?.creeLe || today() };
         delete body.id;
         await write(() => (s ? S.db.collection("suivis").doc(s.id) : S.db.collection("suivis").doc()).set(body), s ? "Suivi mis à jour" : "Suivi ajouté");
@@ -1234,6 +1349,8 @@ document.addEventListener("click", e => {
     case "new-paiement": formPaiement(id, el.dataset.montant ? Number(el.dataset.montant) : undefined); break;
     case "new-suivi": formSuivi(null, { clientId: el.dataset.client }); break;
     case "new-rdv": formSuivi(null, { clientId: el.dataset.client, type: "rencontre" }); break;
+    case "rappel-ajout": ajouterRappel(el.dataset.prefixe); break;
+    case "ics-info": toast("L'ajout au calendrier se fait depuis l'application installée (version Cloudflare)."); break;
     case "edit-suivi": formSuivi(S.suivis.get(id)); break;
     case "fait": marquerFait(id); break;
     case "relances": creerRelances(); break;
@@ -1325,6 +1442,7 @@ function restDb() {
 }
 
 /* ---------- Démarrage */
+setInterval(() => { if (!dlg.open && !document.hidden) scheduleRender(); }, 60000);
 const saved = lsGet("onglet"); if (saved && ["tableau", "ventes", "clients", "suivis", "factures", "sauvegarde"].includes(saved)) S.tab = saved;
 render();
 (async () => {

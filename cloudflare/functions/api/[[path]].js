@@ -27,6 +27,19 @@ export async function onRequest({ request, env, params }) {
     return json(sortie);
   }
 
+  // Fichier calendrier d'un rendez-vous, avec ses rappels : l'iPhone l'ajoute à Calendrier et sonne aux bons moments
+  if (morceaux.length === 2 && morceaux[0] === "ics" && methode === "GET") {
+    const id = morceaux[1].replace(/\.ics$/, "");
+    if (!ID_VALIDE.test(id)) return json({ erreur: "identifiant invalide" }, 400);
+    const ligne = await env.DB.prepare("SELECT data FROM docs WHERE collection = 'suivis' AND id = ?").bind(id).first();
+    if (!ligne) return json({ erreur: "rendez-vous introuvable" }, 404);
+    const rdv = JSON.parse(ligne.data);
+    if (!rdv.datePrevue || !rdv.heure) return json({ erreur: "le rendez-vous n'a pas d'heure" }, 400);
+    const cl = await env.DB.prepare("SELECT data FROM docs WHERE collection = 'clients' AND id = ?").bind(rdv.clientId || "").first();
+    return new Response(calendrier(id, rdv, cl ? JSON.parse(cl.data).nom : "Client"), {
+      headers: { "content-type": "text/calendar; charset=utf-8", "content-disposition": `inline; filename="rdv-${id}.ics"`, "cache-control": "no-store" } });
+  }
+
   if (morceaux.length !== 2) return json({ erreur: "chemin inconnu" }, 404);
   const [collection, id] = morceaux;
   if (!COLLECTIONS.has(collection) || !ID_VALIDE.test(id) || id === "." || id === "..") return json({ erreur: "collection ou identifiant invalide" }, 400);
@@ -59,6 +72,28 @@ export async function onRequest({ request, env, params }) {
   }
 
   return json({ erreur: "méthode non permise" }, 405);
+}
+
+// ---------------------------------------------------------------------------
+// Calendrier (RFC 5545). Heure « flottante » : l'iPhone l'interprète dans son propre fuseau horaire.
+const RAPPELS_DEFAUT = [1440, 300, 30];
+const echapper = t => String(t ?? "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+const plier = l => { const out = []; let x = l; while (new TextEncoder().encode(x).length > 73) { let n = 73; while (new TextEncoder().encode(x.slice(0, n)).length > 73) n--; out.push(x.slice(0, n)); x = " " + x.slice(n); } out.push(x); return out.join("\r\n"); };
+const duree = m => m % 1440 === 0 ? `-P${m / 1440}D` : m % 60 === 0 ? `-PT${m / 60}H` : `-PT${m}M`;
+const libelle = m => m % 1440 === 0 ? `${m / 1440} jour${m > 1440 ? "s" : ""}` : m % 60 === 0 ? `${m / 60} h` : `${m} min`;
+function calendrier(id, rdv, client) {
+  const [y, mo, d] = rdv.datePrevue.split("-").map(Number), [h, mi] = rdv.heure.split(":").map(Number);
+  const deb = new Date(Date.UTC(y, mo - 1, d, h, mi)), fin = new Date(deb.getTime() + 3600_000);
+  const flottant = t => t.toISOString().replace(/[-:]/g, "").slice(0, 15);
+  const titre = `RDV ${client}${rdv.closer ? ` avec ${rdv.closer}` : ""}`;
+  const rappels = Array.isArray(rdv.rappels) ? rdv.rappels : RAPPELS_DEFAUT;
+  const lignes = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Suivi des commissions//FR", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "BEGIN:VEVENT",
+    `UID:${id}@suivi-commissions`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
+    `DTSTART:${flottant(deb)}`, `DTEND:${flottant(fin)}`, `SUMMARY:${echapper(titre)}`,
+    `DESCRIPTION:${echapper([rdv.sujet, rdv.closer ? `Closer : ${rdv.closer}` : ""].filter(Boolean).join("\n"))}`];
+  for (const m of rappels) if (m > 0) lignes.push("BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${echapper(`${titre} dans ${libelle(m)}`)}`, `TRIGGER:${duree(m)}`, "END:VALARM");
+  lignes.push("END:VEVENT", "END:VCALENDAR");
+  return lignes.map(plier).join("\r\n") + "\r\n";
 }
 
 // ---------------------------------------------------------------------------
