@@ -38,6 +38,7 @@ L'utilisateur remplit lui-même ses données sur le site : https://claude.ai/art
 
 L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout est dans `cloudflare/` (voir son README) :
 - `site/index.html` reste la source unique. `cloudflare/construire.sh` l'emballe avec `<meta name="hebergement" content="cloudflare">`, ce qui fait passer la page sur l'API `/api` (base D1) au lieu de la base claude.ai.
+- **En ligne** : https://suivi-commissions.pages.dev (protégé par Cloudflare Access, équipe Zero Trust de l'utilisateur ; connexion par code envoyé à son courriel). Le jeton ne peut pas lister les comptes : il faut fournir CLOUDFLARE_ACCOUNT_ID (variable d'environnement, ou le demander à l'utilisateur ; ne pas le committer).
 - Mise en ligne : `cloudflare/deployer.sh`, avec CLOUDFLARE_API_TOKEN et EMAIL_AUTORISE dans l'environnement (CLOUDFLARE_ACCOUNT_ID facultatif). Le réseau de l'environnement doit autoriser `api.cloudflare.com`.
 - Ne jamais committer l'adresse courriel ni les identifiants Cloudflare : le dépôt est public. Le script les écrit seulement dans `cloudflare/.deploiement/`, qui est ignoré par Git.
 - Après toute modification de `site/index.html` : republier l'artifact claude.ai ET relancer `deployer.sh`.
