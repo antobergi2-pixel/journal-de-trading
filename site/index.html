@@ -1267,7 +1267,7 @@ document.addEventListener("change", e => {
    la page se resynchronise au retour sur l'onglet et chaque minute. */
 function restDb() {
   const cache = Object.fromEntries(COLS.map(c => [c, new Map()])), ecoutes = {}, erreurs = [];
-  let charge = false, enCours = null;
+  let charge = false, enCours = null, signale = false;
   const snap = c => ({ docs: [...cache[c].entries()].map(([id, d]) => ({ id, exists: true, data: () => structuredClone(d) })) });
   const diffuse = c => (ecoutes[c] || []).forEach(fn => fn(snap(c)));
   const nouvelId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -1286,7 +1286,10 @@ function restDb() {
         const tout = await req("GET", "/data");
         for (const c of COLS) cache[c] = new Map((tout[c] || []).map(d => [d.id, d.data]));
         charge = true; COLS.forEach(diffuse);
-      } catch (e) { if (e.code === "revoked") erreurs.forEach(f => f(e)); }
+      } catch (e) {
+        // accès retiré, ou premier chargement impossible (hors ligne) : la page l'affiche ; elle se rétablit au retour du réseau
+        if (e.code === "revoked" || (!charge && !signale)) { signale = true; erreurs.forEach(f => f(e)); }
+      }
       finally { enCours = null; }
     })();
   }
@@ -1326,6 +1329,8 @@ const saved = lsGet("onglet"); if (saved && ["tableau", "ventes", "clients", "su
 render();
 (async () => {
   let db = null;
+  // Application installée sur téléphone : démarrage rapide (seulement sur Cloudflare)
+  if (HEBERGE === "cloudflare" && "serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   if (HEBERGE === "cloudflare") db = restDb();
   else try { db = window.claude?.use ? await window.claude.use("db") : null; } catch (_) {}
   if (!db) { S.dbState = "absent"; render(); return; }

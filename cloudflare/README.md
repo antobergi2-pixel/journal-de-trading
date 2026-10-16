@@ -24,6 +24,15 @@ export CLOUDFLARE_API_TOKEN=...  EMAIL_AUTORISE=ton@courriel.com   # CLOUDFLARE_
 ```
 Le script crée la base D1, le projet Pages et la protection Access, puis met le site en ligne. Tu peux le relancer à chaque modification du site : il réutilise ce qui existe et ne touche jamais aux données.
 
+## Installer l'application sur le téléphone
+
+Le site Cloudflare est une application web installable : icône sur l'écran d'accueil, ouverture en plein écran, démarrage rapide.
+
+- **iPhone (Safari) :** ouvre l'adresse du site, connecte-toi avec le code reçu par courriel, puis touche **Partager → Sur l'écran d'accueil → Ajouter**.
+- **Android (Chrome) :** ouvre l'adresse, connecte-toi, puis **⋮ → Installer l'application**.
+
+Les fichiers de l'application sont dans `pwa/` : manifeste, service worker et icônes. Les icônes se régénèrent avec `python3 pwa/icones.py`. Le service worker garde la page en mémoire, mais jamais les données, qui viennent toujours de D1.
+
 ## Ne rien perdre
 
 - **D1 Time Travel** garde automatiquement l'historique de la base. Tu peux la remettre dans l'état d'une minute précise des 30 derniers jours, ou des 7 derniers jours sur le forfait gratuit : `npx wrangler d1 time-travel restore suivi-commissions --timestamp=...`.
