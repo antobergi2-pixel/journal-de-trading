@@ -48,8 +48,17 @@ export async function onRequest({ request, env, params }) {
     const adresse = ligne ? JSON.parse(ligne.data).icalUrl : "";
     if (!adresse) return json({ connecte: false, evenements: [] });
     if (!URL_GOOGLE.test(adresse)) return json({ connecte: true, erreur: "adresse invalide", evenements: [] });
-    const url = new URL(request.url), jours = Math.min(31, Math.max(1, +url.searchParams.get("jours") || 7));
-    const de = Date.now() - 86400000, a = de + (jours + 1) * 86400000;
+    // Période : ?de=AAAA-MM-JJ&a=AAAA-MM-JJ (au plus 370 jours, une marge d'un jour de chaque côté pour les fuseaux), sinon ?jours=N à partir d'hier
+    const url = new URL(request.url), JOUR = 86400000, iso = /^\d{4}-\d{2}-\d{2}$/;
+    let de, a;
+    if (iso.test(url.searchParams.get("de") || "") && iso.test(url.searchParams.get("a") || "")) {
+      de = Date.parse(url.searchParams.get("de") + "T00:00:00Z") - JOUR;
+      a = Math.min(Date.parse(url.searchParams.get("a") + "T00:00:00Z") + 2 * JOUR, de + 372 * JOUR);
+      if (!(a > de)) return json({ erreur: "période invalide" }, 400);
+    } else {
+      const jours = Math.min(31, Math.max(1, +url.searchParams.get("jours") || 7));
+      de = Date.now() - JOUR; a = de + (jours + 1) * JOUR;
+    }
     let rep;
     try { rep = await fetch(adresse, { cf: { cacheTtl: 300, cacheEverything: true } }); } catch { return json({ connecte: true, erreur: "Google ne répond pas", evenements: [] }); }
     if (!rep.ok) return json({ connecte: true, erreur: rep.status === 404 ? "adresse introuvable chez Google" : `Google a répondu ${rep.status}`, evenements: [] });

@@ -233,6 +233,83 @@ nav.tabs .court { display: none; }
   .btn, nav.tabs button { transition: background-color .15s, border-color .15s, color .15s; }
 }
 
+/* ---------- Agenda */
+:root { --cal-g: #6aa8ff; --cal-g-soft: #16294a; }
+.cal { display: grid; gap: 14px; }
+.cal-barre { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: none; color: var(--muted); padding: 7px 16px; border-radius: 999px; cursor: pointer; font-weight: 500; }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.btn.rond { border-radius: 999px; min-width: 40px; justify-content: center; font-size: 1.2rem; line-height: 1; }
+.cal-titre { display: flex; align-items: center; gap: 8px; }
+.cal-titre h2 { font-size: clamp(1.45rem, 6vw, 2.4rem); font-weight: 400; white-space: nowrap; }
+.cal-titre .spacer { flex: 1; }
+.cal-evt.court { flex-direction: row; align-items: center; padding-top: 1px; padding-bottom: 1px; }
+.cal-evt.court span { display: none; }
+.cal-titre h2 b { font-weight: 700; }
+.cal-cadre { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow-x: auto; }
+.cal-cadre.large .cal-int { min-width: 720px; }
+.cal-ligne { display: grid; }
+.cal-entete { border-bottom: 1px solid var(--line); }
+.cal-tete { text-align: center; padding: 10px 2px; color: var(--muted); cursor: pointer; font-size: .95rem; }
+.cal-tete b { color: var(--fg); font-weight: 500; font-size: 1.15rem; }
+.cal-tete.auj b { background: var(--bad); color: #fff; border-radius: 999px; padding: 2px 8px; }
+.cal-journee { border-bottom: 1px solid var(--line); min-height: 34px; }
+.cal-lbl { font-size: .72rem; color: var(--muted); padding: 8px 6px; }
+.cal-jj { border-left: 1px solid var(--line); padding: 3px; display: grid; gap: 3px; align-content: start; min-width: 0; }
+.cal-scroll { max-height: min(70vh, calc(100dvh - 290px)); overflow-y: auto; }
+.cal-corps { position: relative; }
+.cal-heures { position: relative; }
+.cal-hl { position: absolute; right: 8px; transform: translateY(-50%); font-size: .72rem; color: var(--muted); font-family: var(--f-num); }
+.cal-hl:first-child { display: none; }
+.cal-col { position: relative; border-left: 1px solid var(--line); cursor: copy; min-width: 0;
+  background-image: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px 56px); }
+.cal-evt { position: absolute; border: 0; border-left: 3px solid; border-radius: 6px; padding: 3px 6px; text-align: left; overflow: hidden; cursor: pointer;
+  display: flex; flex-direction: column; gap: 1px; font-size: .78rem; line-height: 1.25; color: var(--fg); }
+.cal-evt b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-evt span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-puce, .cal-mini { border: 0; border-radius: 6px; padding: 3px 7px; font-size: .76rem; text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg); min-width: 0; }
+.t-rdv { background: var(--accent-soft); border-color: var(--accent); } .cal-puce.t-rdv, .cal-mini.t-rdv { color: var(--accent); }
+.t-suivi { background: var(--warn-soft); border-color: var(--warn); } .cal-puce.t-suivi, .cal-mini.t-suivi { color: var(--warn); }
+.t-versement { background: var(--ok-soft); border-color: var(--ok); } .cal-puce.t-versement, .cal-mini.t-versement { color: var(--ok); }
+.t-google { background: var(--cal-g-soft); border-color: var(--cal-g); } .cal-puce.t-google, .cal-mini.t-google { color: var(--cal-g); }
+.fait { opacity: .45; text-decoration: line-through; }
+.cal-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--bad); pointer-events: none; }
+.cal-now::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+.cal-mois { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.cal-mtete { text-align: center; padding: 8px 0; font-size: .78rem; color: var(--muted); border-bottom: 1px solid var(--line); }
+.cal-case { min-height: 104px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 4px; display: grid; gap: 2px; align-content: start; cursor: pointer; min-width: 0; }
+.cal-case:nth-child(7n + 7) { border-right: 0; }
+.cal-case.hors { opacity: .4; }
+.cal-num { font-size: .85rem; justify-self: end; padding: 1px 6px; }
+.cal-case.auj .cal-num { background: var(--bad); color: #fff; border-radius: 999px; }
+.cal-mini i { font-style: normal; color: var(--muted); font-family: var(--f-num); }
+.cal-plus { font-size: .72rem; color: var(--muted); padding-left: 4px; }
+.cal-annee { display: grid; gap: 18px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.cal-am { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; }
+.cal-amt { border: 0; background: none; color: var(--bad); font: 600 1.05rem var(--f-display); cursor: pointer; padding: 0 0 6px; text-transform: capitalize; }
+.cal-amg { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.cal-amj { font-size: .66rem; color: var(--muted); }
+.cal-amd { border: 0; background: none; color: var(--fg); font-size: .8rem; padding: 4px 0; border-radius: 999px; cursor: pointer; position: relative; }
+.cal-amd.plein::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+.cal-amd.auj { background: var(--bad); color: #fff; }
+.cal-leg { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; color: var(--muted); }
+.cal-leg > span { display: inline-flex; align-items: center; gap: 6px; background: none !important; }
+.cal-leg > span::before { content: ""; width: 10px; height: 10px; border-radius: 3px; border: 2px solid; border-color: inherit; }
+@media (max-width: 640px) {
+  .seg button { padding: 6px 11px; font-size: .88rem; }
+  .cal-titre { gap: 6px; }
+  .cal-titre .btn { padding: 6px 10px; }
+  .cal-titre .btn.rond { min-width: 34px; }
+  .cal-annee { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .cal-am { padding: 8px; }
+  .cal-amd { font-size: .68rem; padding: 3px 0; }
+  .cal-case { min-height: 64px; padding: 2px; }
+  .cal-mini { font-size: .62rem; padding: 1px 3px; }
+  .cal-mini i { display: none; }
+  nav.tabs button { padding-left: 4px; padding-right: 4px; font-size: .72rem; }
+}
+
 /* Finitions du thème sombre */
 .panel, .rdv, .kpi { box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 6px 18px rgba(0,0,0,.25); }
 .btn { border-radius: 8px; background: var(--surface-2); }
@@ -260,6 +337,7 @@ th { background: var(--surface-2); }
     </div>
     <nav class="tabs" id="tabs" role="tablist" aria-label="Sections">
       <button role="tab" data-tab="tableau"><span class="long">Tableau de bord</span><span class="court">Accueil</span></button>
+      <button role="tab" data-tab="calendrier">Agenda</button>
       <button role="tab" data-tab="ventes">Ventes<span class="count" id="c-ventes"></span></button>
       <button role="tab" data-tab="clients">Clients<span class="count" id="c-clients"></span></button>
       <button role="tab" data-tab="suivis">Suivis<span class="count" id="c-suivis"></span></button>
@@ -292,7 +370,7 @@ th { background: var(--surface-2); }
 const COLS = ["clients", "ventes", "paiements", "suivis", "factures", "parametres"];
 // La même page tourne sur claude.ai (base de l'artifact) et sur Cloudflare (base D1, via /api).
 const HEBERGE = document.querySelector('meta[name="hebergement"]')?.content === "cloudflare" ? "cloudflare" : "claude";
-const S = { agenda: { connecte: false, evenements: [], erreur: "", charge: false }, clients: new Map(), ventes: new Map(), paiements: new Map(), suivis: new Map(), factures: new Map(), parametres: new Map(), factMois: "",
+const S = { cal: { vue: "", ref: "" }, calPlages: new Map(), agenda: { connecte: false, evenements: [], erreur: "", charge: false }, clients: new Map(), ventes: new Map(), paiements: new Map(), suivis: new Map(), factures: new Map(), parametres: new Map(), factMois: "",
             loaded: new Set(), db: null, dbState: "attente", tab: "tableau", filtre: { q: "", etat: "" } };
 const TAUX_DEFAUT = 5;
 const ETAPES = ["Prospect", "Premier contact", "Soumission envoyée", "Négociation", "Signé", "Perdu"];
@@ -415,8 +493,10 @@ function render() {
   const sync = $("#sync");
   sync.className = "sync " + (S.dbState === "ok" ? "ok" : S.dbState === "attente" ? "" : "bad");
   sync.textContent = { ok: "Enregistré en ligne", attente: "Connexion…", absent: "Enregistrement indisponible", erreur: "Erreur de connexion" }[S.dbState];
-  const views = { tableau: viewTableau, ventes: viewVentes, clients: viewClients, suivis: viewSuivis, factures: viewFactures, sauvegarde: viewSauvegarde };
+  const views = { calendrier: viewCalendrier, tableau: viewTableau, ventes: viewVentes, clients: viewClients, suivis: viewSuivis, factures: viewFactures, sauvegarde: viewSauvegarde };
+  const grille = $(".cal-scroll"); if (grille) S.calScroll = grille.scrollTop;
   $("#app").innerHTML = bannerHtml() + views[S.tab]();
+  const g2 = $(".cal-scroll"); if (g2) g2.scrollTop = S.calScroll ?? 7 * CAL_H;
   if (actId && document.getElementById(actId) && actId !== "dlg") {
     const el = document.getElementById(actId); el.focus();
     if (sel && "setSelectionRange" in el) try { el.setSelectionRange(sel[0], sel[1]); } catch (_) {}
@@ -426,7 +506,7 @@ function bannerHtml() {
   if (S.dbState === "absent") return `<div class="banner bad"><strong>L'enregistrement en ligne n'est pas disponible ici.</strong> ${HEBERGE === "cloudflare" ? "Recharge la page. Si le problème continue, vérifie ta connexion Internet." : "Ouvre cette page depuis claude.ai en étant connecté pour ajouter et retrouver tes données."}</div>`;
   if (S.dbState === "erreur") return `<div class="banner bad"><strong>La connexion à la base a été interrompue.</strong> Recharge la page ; ce qui a déjà été enregistré n'est pas perdu.</div>`;
   const last = lsGet("derniereSauvegarde");
-  if (S.dbState === "ok" && S.ventes.size + S.clients.size > 0 && (!last || (Date.now() - Date.parse(last)) > 7 * 864e5))
+  if (S.tab === "tableau" && S.dbState === "ok" && S.ventes.size + S.clients.size > 0 && (!last || (Date.now() - Date.parse(last)) > 7 * 864e5))
     return `<div class="banner">Tes données sont enregistrées en ligne automatiquement. Pour avoir aussi une copie chez toi, <button class="btn link" data-action="tab" data-tab="sauvegarde">télécharge une sauvegarde</button>${last ? ` (dernière : ${fmtDate(last.slice(0, 10))})` : ""}.</div>`;
   return "";
 }
@@ -547,6 +627,146 @@ function planLabel(v, c) {
   if (p.mode === "recurrent") return `${money(p.mensualite, v.devise)} / mois, sans fin`;
   if (c.plan.length > 1) return `${c.plan.length} versements mensuels`;
   return "Paiement unique";
+}
+
+/* ----- Agenda : vues Jour / Semaine / Mois / Année, dans l'esprit du Calendrier d'Apple */
+const CAL_H = 56;                       // hauteur d'une heure, en pixels
+const JOURS_COURTS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
+const MOIS_LONGS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+function calVue() { if (!S.cal.vue) S.cal.vue = lsGet("calVue") || (innerWidth < 640 ? "jour" : "semaine"); if (!S.cal.ref) S.cal.ref = today(); return S.cal; }
+function calPlage() {
+  const { vue, ref } = calVue(), d = parseIso(ref);
+  if (vue === "jour") return [ref, ref];
+  if (vue === "semaine") { const deb = addDays(ref, -d.getDay()); return [deb, addDays(deb, 6)]; }
+  if (vue === "mois") { const prem = isoLocal(new Date(d.getFullYear(), d.getMonth(), 1)); const deb = addDays(prem, -parseIso(prem).getDay()); return [deb, addDays(deb, 41)]; }
+  return [`${d.getFullYear()}-01-01`, `${d.getFullYear()}-12-31`];
+}
+function calGoogle(de, a) {
+  if (HEBERGE !== "cloudflare" || !S.agenda.connecte) return [];
+  const cle = `${de}|${a}`, c = S.calPlages.get(cle);
+  if (c) return c.evenements || [];
+  S.calPlages.set(cle, { evenements: [] });
+  fetch(`/api/agenda?de=${de}&a=${a}`, { credentials: "same-origin" }).then(r => r.ok ? r.json() : null)
+    .then(d => { if (d) { S.calPlages.set(cle, d); if (S.calPlages.size > 12) S.calPlages.delete(S.calPlages.keys().next().value); scheduleRender(); } })
+    .catch(() => S.calPlages.delete(cle));
+  return [];
+}
+// Tous les événements de la période, au même format
+function calEvenements(de, a) {
+  const out = [];
+  for (const s of S.suivis.values()) {
+    if (!s.datePrevue || s.datePrevue < de || s.datePrevue > a || s.statut === "annule") continue;
+    const rdv = s.type === "rencontre", deb = s.heure ? new Date(`${s.datePrevue}T${s.heure}:00`) : null;
+    out.push({ type: rdv ? "rdv" : "suivi", id: s.id, fait: s.statut === "fait", jour: s.datePrevue, journee: !deb,
+               debut: deb, fin: deb ? new Date(deb.getTime() + (rdv ? 60 : 30) * 60000) : null,
+               titre: rdv ? clientName(s.clientId) : s.sujet, sous: rdv ? (s.closer ? `avec ${s.closer}` : s.sujet || "") : clientName(s.clientId) });
+  }
+  for (const { v, c } of ventesCalc()) {
+    if (v.annulee) continue;
+    for (const e of c.plan) if (e.reste > 0.005 && e.date >= de && e.date <= a)
+      out.push({ type: "versement", id: v.id, jour: e.date, journee: true, titre: `${clientName(v.clientId)} · ${money(e.reste, v.devise)}`, sous: `Versement ${e.nb ? `${e.no}/${e.nb}` : `n° ${e.no}`}` });
+  }
+  calGoogle(de, a).forEach((g, i) => {
+    if (g.journee) {
+      const fin = g.fin ? g.fin.slice(0, 10) : g.debut.slice(0, 10);
+      for (let j = g.debut.slice(0, 10); j === g.debut.slice(0, 10) || j < fin; j = addDays(j, 1)) if (j >= de && j <= a) out.push({ type: "google", id: `g${i}`, jour: j, journee: true, titre: g.titre, sous: g.lieu, g });
+    } else {
+      const deb = new Date(g.debut), fin = new Date(g.fin > g.debut ? g.fin : Date.parse(g.debut) + 1800000);
+      for (let j = isoLocal(deb); j <= isoLocal(new Date(fin.getTime() - 1)); j = addDays(j, 1)) if (j >= de && j <= a) out.push({ type: "google", id: `g${i}`, jour: j, journee: false, debut: deb, fin, titre: g.titre, sous: g.lieu, g });
+    }
+  });
+  return out;
+}
+// Événements qui se chevauchent : côte à côte, comme dans Calendrier
+function calDisposer(evts) {
+  evts.sort((p, q) => p.d0 - q.d0 || q.d1 - p.d1);
+  let groupe = [], finGroupe = -1, colonnes = [];
+  const clore = () => { groupe.forEach(e => e.n = colonnes.length); groupe = []; colonnes = []; };
+  for (const e of evts) {
+    if (e.d0 >= finGroupe) clore();
+    let c = colonnes.findIndex(fin => fin <= e.d0); if (c < 0) { c = colonnes.length; colonnes.push(0); }
+    colonnes[c] = e.d1; e.col = c; groupe.push(e); finGroupe = Math.max(finGroupe, e.d1);
+  }
+  clore(); return evts;
+}
+const calAttr = e => `data-action="cal-ouvrir" data-type="${e.type}" data-id="${esc(e.id)}"`;
+function calGrille(jours, evts) {
+  const t = today(), maintenant = new Date(), minNow = maintenant.getHours() * 60 + maintenant.getMinutes();
+  const cols = `56px repeat(${jours.length}, minmax(0, 1fr))`;
+  const tete = jours.map(j => { const d = parseIso(j); return `<div class="cal-tete${j === t ? " auj" : ""}" data-action="cal-jour" data-date="${j}"><span>${JOURS_COURTS[d.getDay()]}</span> <b>${d.getDate()}</b></div>`; }).join("");
+  const journee = jours.map(j => `<div class="cal-jj">${evts.filter(e => e.journee && e.jour === j).map(e => `<button class="cal-puce t-${e.type}${e.fait ? " fait" : ""}" ${calAttr(e)}>${esc(e.titre)}</button>`).join("")}</div>`).join("");
+  const heures = Array.from({ length: 24 }, (_, h) => `<span class="cal-hl" style="top:${h * CAL_H}px">${pad(h)}:00</span>`).join("");
+  const colonnes = jours.map(j => {
+    const debJour = parseIso(j).getTime();
+    const items = calDisposer(evts.filter(e => !e.journee && e.jour === j).map(e => ({ ...e, d0: Math.max(0, (e.debut - debJour) / 60000), d1: Math.min(1440, (e.fin - debJour) / 60000) })));
+    return `<div class="cal-col" data-date="${j}">${items.map(e => `<button class="cal-evt t-${e.type}${e.fait ? " fait" : ""}${e.d1 - e.d0 < 45 ? " court" : ""}" ${calAttr(e)} style="top:${e.d0 / 60 * CAL_H}px;height:${Math.max(22, (e.d1 - e.d0) / 60 * CAL_H - 2)}px;left:calc(${e.col / e.n * 100}% + 2px);width:calc(${100 / e.n}% - 4px)">
+        <b>${esc(e.titre)}</b>${e.sous ? `<span>${esc(e.sous)}</span>` : ""}</button>`).join("")}
+      ${j === t ? `<div class="cal-now" style="top:${minNow / 60 * CAL_H}px"></div>` : ""}</div>`;
+  }).join("");
+  return `<div class="cal-cadre${jours.length > 1 ? " large" : ""}"><div class="cal-int">
+    <div class="cal-ligne cal-entete" style="grid-template-columns:${cols}"><div></div>${tete}</div>
+    <div class="cal-ligne cal-journee" style="grid-template-columns:${cols}"><div class="cal-lbl">jour entier</div>${journee}</div>
+    <div class="cal-scroll"><div class="cal-ligne cal-corps" style="grid-template-columns:${cols};height:${24 * CAL_H}px"><div class="cal-heures">${heures}</div>${colonnes}</div></div>
+  </div></div>`;
+}
+function calMois(evts) {
+  const { ref } = calVue(), [de] = calPlage(), mois = parseIso(ref).getMonth(), t = today();
+  const cases = Array.from({ length: 42 }, (_, i) => addDays(de, i));
+  return `<div class="cal-mois">${JOURS_COURTS.map(j => `<div class="cal-mtete">${j}</div>`).join("")}
+    ${cases.map(j => { const l = evts.filter(e => e.jour === j).sort((p, q) => (p.journee ? -1 : p.debut) - (q.journee ? -1 : q.debut)), d = parseIso(j);
+      return `<div class="cal-case${d.getMonth() !== mois ? " hors" : ""}${j === t ? " auj" : ""}" data-action="cal-jour" data-date="${j}"><span class="cal-num">${d.getDate()}</span>
+        ${l.slice(0, 3).map(e => `<button class="cal-mini t-${e.type}" ${calAttr(e)}>${e.journee ? "" : `<i>${pad(e.debut.getHours())}:${pad(e.debut.getMinutes())}</i> `}${esc(e.titre)}</button>`).join("")}
+        ${l.length > 3 ? `<span class="cal-plus">${l.length - 3} autre${l.length > 4 ? "s" : ""}</span>` : ""}</div>`; }).join("")}</div>`;
+}
+function calAnnee(evts) {
+  const { ref } = calVue(), an = parseIso(ref).getFullYear(), t = today(), avec = new Set(evts.map(e => e.jour));
+  return `<div class="cal-annee">${MOIS_LONGS.map((nom, m) => {
+    const prem = new Date(an, m, 1), deb = addDays(isoLocal(prem), -prem.getDay());
+    return `<div class="cal-am"><button class="cal-amt" data-action="cal-mois" data-date="${isoLocal(prem)}">${nom}</button><div class="cal-amg">
+      ${JOURS_COURTS.map(j => `<span class="cal-amj">${j[0].toUpperCase()}</span>`).join("")}
+      ${Array.from({ length: 42 }, (_, i) => { const j = addDays(deb, i), d = parseIso(j);
+        return d.getMonth() !== m ? "<span></span>" : `<button class="cal-amd${j === t ? " auj" : ""}${avec.has(j) ? " plein" : ""}" data-action="cal-jour" data-date="${j}">${d.getDate()}</button>`; }).join("")}</div></div>`; }).join("")}</div>`;
+}
+function viewCalendrier() {
+  const { vue, ref } = calVue(), [de, a] = calPlage(), d = parseIso(ref), evts = calEvenements(de, a);
+  const titre = vue === "annee" ? `<b>${d.getFullYear()}</b>` : vue === "jour"
+    ? `<b>${d.getDate()} ${MOIS_LONGS[d.getMonth()]}</b> ${d.getFullYear()}`
+    : `<b>${MOIS_LONGS[d.getMonth()].replace(/^./, c => c.toUpperCase())}</b> ${d.getFullYear()}`;
+  let corps;
+  if (vue === "jour") corps = calGrille([ref], evts);
+  else if (vue === "semaine") corps = calGrille(Array.from({ length: 7 }, (_, i) => addDays(de, i)), evts);
+  else if (vue === "mois") corps = calMois(evts);
+  else corps = calAnnee(evts);
+  const vues = [["jour", "Jour"], ["semaine", "Semaine"], ["mois", "Mois"], ["annee", "Année"]];
+  return `<section class="cal">
+    <div class="cal-barre">
+      <button class="btn rond" data-action="cal-nouveau" aria-label="Nouveau rendez-vous"${dis()}>＋</button>
+      <div class="seg" role="group" aria-label="Affichage">${vues.map(([k, l]) => `<button data-action="cal-vue" data-vue="${k}" aria-pressed="${vue === k}">${l}</button>`).join("")}</div>
+    </div>
+    <div class="cal-titre"><h2>${titre}</h2><span class="spacer"></span>
+      <button class="btn rond" data-action="cal-nav" data-sens="-1" aria-label="Précédent">‹</button>
+      <button class="btn" data-action="cal-nav" data-sens="0">Aujourd'hui</button>
+      <button class="btn rond" data-action="cal-nav" data-sens="1" aria-label="Suivant">›</button></div>
+    ${corps}
+    <div class="cal-leg small"><span class="t-rdv">RDV client</span><span class="t-suivi">Suivi</span><span class="t-versement">Versement</span>${HEBERGE === "cloudflare" ? `<span class="t-google">Google</span>${S.agenda.connecte ? "" : ` <button class="btn link" data-action="agenda-params">Connecter Google</button>`}` : ""}</div>
+  </section>`;
+}
+function calNav(sens) {
+  const c = calVue();
+  if (sens === 0) { c.ref = today(); return; }
+  const d = parseIso(c.ref);
+  c.ref = c.vue === "jour" ? addDays(c.ref, sens) : c.vue === "semaine" ? addDays(c.ref, 7 * sens)
+        : c.vue === "mois" ? isoLocal(new Date(d.getFullYear(), d.getMonth() + sens, 1)) : isoLocal(new Date(d.getFullYear() + sens, d.getMonth(), 1));
+}
+function calOuvrir(type, id) {
+  if (type === "rdv" || type === "suivi") return formSuivi(S.suivis.get(id));
+  if (type === "versement") return ficheVente(id);
+  const [de, a] = calPlage(), e = calEvenements(de, a).find(x => x.id === id && x.type === "google"); if (!e) return;
+  const g = e.g;
+  openDlg(`<div class="dlg">${head(g.titre)}<div class="dlg-body">
+    <p style="margin:0">${g.journee ? "Toute la journée" : `${esc(fmtDate(isoLocal(new Date(g.debut))))}, ${esc(heureLocal(g.debut))} à ${esc(heureLocal(g.fin))}`}</p>
+    ${g.lieu ? `<p class="muted" style="margin:0">${esc(g.lieu)}</p>` : ""}<p class="small muted" style="margin:0">Événement de ton agenda Google (lecture seule).</p>
+  </div><div class="dlg-foot"><span class="spacer"></span><button class="btn" data-action="close">Fermer</button></div></div>`);
 }
 
 /* ----- Clients */
@@ -1255,7 +1475,7 @@ function formPaiement(venteId, montant) {
 
 /* ----- Suivi */
 function formSuivi(s, preset = {}) {
-  const x = s || { type: preset.type || "follow_up", priorite: "normale", datePrevue: addDays(today(), 1), clientId: preset.clientId || "", venteId: preset.venteId || "",
+  const x = s || { type: preset.type || "follow_up", priorite: "normale", datePrevue: preset.date || addDays(today(), 1), heure: preset.heure || "", clientId: preset.clientId || "", venteId: preset.venteId || "",
                    sujet: preset.type === "rencontre" && preset.clientId ? `Rendez-vous avec ${clientName(preset.clientId)}` : "" };
   const clients = [...S.clients.values()].sort(byName);
   if (!clients.length) { toast("Ajoute d'abord un client.", true); return; }
@@ -1427,6 +1647,11 @@ function lsSet(k, v) { try { localStorage.setItem("suivi:" + k, v); } catch (_) 
 
 /* ---------- Événements */
 document.addEventListener("click", e => {
+  const col = e.target.closest(".cal-col");
+  if (col && !e.target.closest(".cal-evt") && canWrite()) {
+    const y = e.clientY - col.getBoundingClientRect().top, m = Math.min(23 * 60 + 30, Math.max(0, Math.round(y / CAL_H * 2) * 30));
+    formSuivi(null, { type: "rencontre", date: col.dataset.date, heure: `${pad(Math.floor(m / 60))}:${pad(m % 60)}` }); return;
+  }
   const el = e.target.closest("[data-action]"); if (!el || el.disabled) return;
   const a = el.dataset.action, id = el.dataset.id;
   if (el.tagName === "BUTTON" && el.closest("tr.click")) e.stopPropagation();
@@ -1444,6 +1669,12 @@ document.addEventListener("click", e => {
     case "new-rdv": formSuivi(null, { clientId: el.dataset.client, type: "rencontre" }); break;
     case "rappel-ajout": ajouterRappel(el.dataset.prefixe); break;
     case "agenda-params": formAgenda(); break;
+    case "cal-vue": S.cal.vue = el.dataset.vue; lsSet("calVue", S.cal.vue); S.calScroll = undefined; render(); break;
+    case "cal-nav": calNav(Number(el.dataset.sens)); render(); break;
+    case "cal-jour": S.cal.vue = "jour"; S.cal.ref = el.dataset.date; S.calScroll = undefined; render(); break;
+    case "cal-mois": S.cal.vue = "mois"; S.cal.ref = el.dataset.date; render(); break;
+    case "cal-ouvrir": calOuvrir(el.dataset.type, el.dataset.id); break;
+    case "cal-nouveau": formSuivi(null, { type: "rencontre", date: S.cal.ref || today() }); break;
     case "agenda-suppr": if (armed(el)) write(() => S.db.collection("parametres").doc("agenda").delete(), "Agenda Google déconnecté").then(() => { S.agenda = { connecte: false, evenements: [], erreur: "", charge: true }; render(); }); break;
     case "ics-info": toast("L'ajout au calendrier se fait depuis l'application installée (version Cloudflare)."); break;
     case "edit-suivi": formSuivi(S.suivis.get(id)); break;
@@ -1541,7 +1772,7 @@ setInterval(() => { if (!dlg.open && !document.hidden) scheduleRender(); }, 6000
 setInterval(() => { if (!document.hidden) chargerAgenda(); }, 600000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) chargerAgenda(); });
 chargerAgenda();
-const saved = lsGet("onglet"); if (saved && ["tableau", "ventes", "clients", "suivis", "factures", "sauvegarde"].includes(saved)) S.tab = saved;
+const saved = lsGet("onglet"); if (saved && ["tableau", "calendrier", "ventes", "clients", "suivis", "factures", "sauvegarde"].includes(saved)) S.tab = saved;
 render();
 (async () => {
   let db = null;

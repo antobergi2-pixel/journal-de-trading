@@ -47,6 +47,7 @@ L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout es
 ## Agenda Google
 
 - **Lecture** : l'application lit l'agenda Google de l'utilisateur par son **adresse secrète iCal** (`parametres/agenda.icalUrl`, limitée à `https://calendar.google.com/calendar/ical/.../basic.ics`). `/api/agenda` la télécharge côté serveur (cache 5 min), l'analyse (`cloudflare/functions/agenda.js` : fuseaux, journées entières, récurrences DAILY/WEEKLY/MONTHLY/YEARLY, EXDATE, occurrences modifiées, annulations) et renvoie les 7 prochains jours. L'accueil affiche « Mon agenda » (Google + RDV clients) et chaque RDV signale un chevauchement avec l'agenda.
+- **Onglet Agenda** : vues Jour / Semaine / Mois / Année dans l'esprit du Calendrier d'Apple (voulu par l'utilisateur). Il montre les RDV clients (turquoise), les suivis (ambre), les versements attendus (vert, « jour entier ») et l'agenda Google (bleu, `/api/agenda?de=AAAA-MM-JJ&a=AAAA-MM-JJ`, 370 jours au plus). Toucher un créneau vide crée un RDV à cette heure.
 - **Écriture** : chaque RDV a un lien « Google Agenda » (modèle d'événement Google prérempli, l'utilisateur confirme). Pas d'écriture automatique : il faudrait OAuth Google.
 - Le connecteur Google Calendar de claude.ai est branché au compte de l'utilisateur (à activer dans la conversation) : il permet à Claude de lire ou créer des événements sur demande, indépendamment de l'application.
 
