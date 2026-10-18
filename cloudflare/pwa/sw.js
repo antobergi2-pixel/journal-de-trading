@@ -1,6 +1,6 @@
 // Service worker de l'application : garde la page et les icônes en mémoire pour un démarrage rapide.
 // Les données (/api) ne sont jamais mises en cache : elles viennent toujours de la base D1.
-const CACHE = "suivi-commissions-v6";
+const CACHE = "suivi-commissions-v7";
 const COQUILLE = ["/", "/manifest.webmanifest", "/icone-192.png", "/icone-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
