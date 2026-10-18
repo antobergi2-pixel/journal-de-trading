@@ -33,6 +33,10 @@ Le site Cloudflare est une application web installable : icône sur l'écran d'a
 
 Les fichiers de l'application sont dans `pwa/` : manifeste, service worker et icônes. Les icônes se régénèrent avec `python3 pwa/icones.py`. Le service worker garde la page en mémoire, mais jamais les données, qui viennent toujours de D1.
 
+## Agenda Google
+
+Dans l'application : **Agenda Google** (accueil ou onglet Suivis), puis colle l'**adresse secrète au format iCal** de ton agenda (calendar.google.com → ⚙ Paramètres → ton agenda → « Adresse secrète au format iCal »). Ta semaine Google s'affiche alors à l'accueil avec tes RDV clients. L'analyse de l'agenda est dans `functions/agenda.js`.
+
 ## Ne rien perdre
 
 - **D1 Time Travel** garde automatiquement l'historique de la base. Tu peux la remettre dans l'état d'une minute précise des 30 derniers jours, ou des 7 derniers jours sur le forfait gratuit : `npx wrangler d1 time-travel restore suivi-commissions --timestamp=...`.

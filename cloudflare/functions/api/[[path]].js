@@ -6,6 +6,8 @@
 // Chaque requête doit porter le jeton de Cloudflare Access : sans lui, rien n'est lu ni écrit,
 // même si l'application Access était mal configurée.
 
+import { URL_GOOGLE, lireAgenda, occurrences } from "../agenda.js";
+
 const COLLECTIONS = new Set(["clients", "ventes", "paiements", "suivis", "factures", "parametres"]);
 const ID_VALIDE = /^[A-Za-z0-9_.~:@+-]{1,200}$/;
 const TAILLE_MAX = 256 * 1024;
@@ -38,6 +40,21 @@ export async function onRequest({ request, env, params }) {
     const cl = await env.DB.prepare("SELECT data FROM docs WHERE collection = 'clients' AND id = ?").bind(rdv.clientId || "").first();
     return new Response(calendrier(id, rdv, cl ? JSON.parse(cl.data).nom : "Client"), {
       headers: { "content-type": "text/calendar; charset=utf-8", "content-disposition": `inline; filename="rdv-${id}.ics"`, "cache-control": "no-store" } });
+  }
+
+  // Agenda Google de l'utilisateur, lu à partir de son adresse secrète iCal (paramètre « agenda »)
+  if (morceaux.length === 1 && morceaux[0] === "agenda" && methode === "GET") {
+    const ligne = await env.DB.prepare("SELECT data FROM docs WHERE collection = 'parametres' AND id = 'agenda'").first();
+    const adresse = ligne ? JSON.parse(ligne.data).icalUrl : "";
+    if (!adresse) return json({ connecte: false, evenements: [] });
+    if (!URL_GOOGLE.test(adresse)) return json({ connecte: true, erreur: "adresse invalide", evenements: [] });
+    const url = new URL(request.url), jours = Math.min(31, Math.max(1, +url.searchParams.get("jours") || 7));
+    const de = Date.now() - 86400000, a = de + (jours + 1) * 86400000;
+    let rep;
+    try { rep = await fetch(adresse, { cf: { cacheTtl: 300, cacheEverything: true } }); } catch { return json({ connecte: true, erreur: "Google ne répond pas", evenements: [] }); }
+    if (!rep.ok) return json({ connecte: true, erreur: rep.status === 404 ? "adresse introuvable chez Google" : `Google a répondu ${rep.status}`, evenements: [] });
+    try { return json({ connecte: true, evenements: occurrences(lireAgenda(await rep.text()), de, a) }); }
+    catch { return json({ connecte: true, erreur: "agenda illisible", evenements: [] }); }
   }
 
   if (morceaux.length !== 2) return json({ erreur: "chemin inconnu" }, 404);

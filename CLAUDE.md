@@ -44,6 +44,12 @@ L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout es
 - Après toute modification de `site/index.html` : republier l'artifact claude.ai ET relancer `deployer.sh`.
 - Le site Cloudflare est aussi l'**application téléphone** de l'utilisateur (application web installable : `cloudflare/pwa/`, ajoutée à l'écran d'accueil). Si la page ou les fichiers mis en cache changent de façon importante, incrémenter `CACHE` dans `pwa/sw.js`.
 
+## Agenda Google
+
+- **Lecture** : l'application lit l'agenda Google de l'utilisateur par son **adresse secrète iCal** (`parametres/agenda.icalUrl`, limitée à `https://calendar.google.com/calendar/ical/.../basic.ics`). `/api/agenda` la télécharge côté serveur (cache 5 min), l'analyse (`cloudflare/functions/agenda.js` : fuseaux, journées entières, récurrences DAILY/WEEKLY/MONTHLY/YEARLY, EXDATE, occurrences modifiées, annulations) et renvoie les 7 prochains jours. L'accueil affiche « Mon agenda » (Google + RDV clients) et chaque RDV signale un chevauchement avec l'agenda.
+- **Écriture** : chaque RDV a un lien « Google Agenda » (modèle d'événement Google prérempli, l'utilisateur confirme). Pas d'écriture automatique : il faudrait OAuth Google.
+- Le connecteur Google Calendar de claude.ai est branché au compte de l'utilisateur (à activer dans la conversation) : il permet à Claude de lire ou créer des événements sur demande, indépendamment de l'application.
+
 ## Import de clients
 
 L'utilisateur peut envoyer un dossier ou un export Letmetalk (CSV : nom, téléphone, courriel, date de création, dernière activité, étiquette, lien) pour créer ses clients. Écrire directement dans D1 avec l'API Cloudflare (`/d1/database/<uuid>/query`, collection `clients`), sans doublon : un client existant (même nom) est complété, jamais écrasé. Le résumé ne contient que ce que le dossier dit : ne rien inventer. Ces données ne vont jamais dans le dépôt.

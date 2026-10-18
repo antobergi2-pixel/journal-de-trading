@@ -202,6 +202,13 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 .rdv .toolbar { margin-top: 6px; }
 a.btn { text-decoration: none; color: inherit; }
 .resume-client { background: var(--accent-soft); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 10px; justify-items: start; }
+.agenda-vide { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.ag-item { display: grid; grid-template-columns: 74px 1fr auto; gap: 10px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line); }
+.ag-item:last-child { border-bottom: 0; }
+.ag-h { font-size: .85rem; color: var(--muted); }
+.ag-t { min-width: 0; overflow-wrap: anywhere; }
+.ag-t .btn.link { color: var(--fg); font-weight: 600; text-decoration: none; }
+.ag-rdv .ag-h { color: var(--accent); font-weight: 500; }
 .banner.alerte { background: var(--accent-soft); border-color: var(--accent); }
 nav.tabs .court { display: none; }
 
@@ -275,14 +282,15 @@ nav.tabs .court { display: none; }
      ventes    {nom, clientId, type, statut, premierContact, dateVente, rev, devise, methode,
                 tauxCommission, plan:{mode, nb, mensualite, premierVersement, fin}, annulee, notes, creeLe}
      paiements {venteId, date, montant, methode, reference, creeLe}
-     suivis    {clientId, venteId, type, sujet, datePrevue, heure, statut, priorite, recurrenceJours,
+     parametres/agenda {icalUrl}   adresse secrète iCal de l'agenda Google (lue par /api/agenda)
+     suivis    {clientId, venteId, type, sujet, datePrevue, heure, closer, rappels, statut, priorite, recurrenceJours,
                 resultat, dateRealisee, creeLe}
    Tout le reste (payé, différence, dû ce mois, commissions, État) est calculé.
    ===================================================================== */
 const COLS = ["clients", "ventes", "paiements", "suivis", "factures", "parametres"];
 // La même page tourne sur claude.ai (base de l'artifact) et sur Cloudflare (base D1, via /api).
 const HEBERGE = document.querySelector('meta[name="hebergement"]')?.content === "cloudflare" ? "cloudflare" : "claude";
-const S = { clients: new Map(), ventes: new Map(), paiements: new Map(), suivis: new Map(), factures: new Map(), parametres: new Map(), factMois: "",
+const S = { agenda: { connecte: false, evenements: [], erreur: "", charge: false }, clients: new Map(), ventes: new Map(), paiements: new Map(), suivis: new Map(), factures: new Map(), parametres: new Map(), factMois: "",
             loaded: new Set(), db: null, dbState: "attente", tab: "tableau", filtre: { q: "", etat: "" } };
 const TAUX_DEFAUT = 5;
 const ETAPES = ["Prospect", "Premier contact", "Soumission envoyée", "Négociation", "Signé", "Perdu"];
@@ -442,7 +450,7 @@ function kpi(label, parDevise, key, sub, alert) {
   return `<div class="panel kpi${alert ? " alert" : ""}"><span class="label">${esc(label)}</span>${lines}${sub ? `<span class="sub">${sub}</span>` : ""}</div>`;
 }
 function viewTableau() {
-  if (S.dbState === "ok" && !S.clients.size && !S.ventes.size) return onboarding();
+  if (S.dbState === "ok" && !S.clients.size && !S.ventes.size) return onboarding() + viewAgenda();
   const list = ventesCalc(), tot = totauxParDevise(list);
   const enRetard = Object.values(tot).some(t => t.retard > 0.005);
   const moisNom = new Date().toLocaleDateString("fr-CA", { month: "long", year: "numeric" });
@@ -453,7 +461,7 @@ function viewTableau() {
   const fus = [...S.suivis.values()].filter(s => s.statut === "a_faire" && s.type !== "rencontre" && s.datePrevue && s.datePrevue <= semaine).sort(fuSort);
   const sansRelance = list.filter(({ v, c }) => c.retard > 0.005 && ![...S.suivis.values()].some(s => s.venteId === v.id && s.type === "relance_paiement" && s.statut === "a_faire"));
   const rdvs = rdvsAVenir(7);
-  return `${alertesRdv()}${rappelFactures()}
+  return `${alertesRdv()}${rappelFactures()}${viewAgenda()}
   <section>
     <div class="section-head"><h3>Rendez-vous des 7 prochains jours</h3><span class="spacer"></span>
       <button class="btn sm" data-action="new-rdv"${dis()}>Planifier un RDV</button></div>
@@ -579,7 +587,7 @@ function viewSuivis() {
   const groups = [["En retard", open.filter(s => s.datePrevue && s.datePrevue < t)], ["Aujourd'hui", open.filter(s => s.datePrevue === t)],
                   ["Cette semaine", open.filter(s => s.datePrevue > t && s.datePrevue <= sem)], ["Plus tard", open.filter(s => !s.datePrevue || s.datePrevue > sem)]];
   const faits = all.filter(s => s.statut === "fait").sort((a, b) => (b.dateRealisee || "").localeCompare(a.dateRealisee || "")).slice(0, 15);
-  return `<section><div class="section-head"><h2>Suivis</h2><span class="spacer"></span><button class="btn primary" data-action="new-suivi"${dis()}>Ajouter un suivi</button></div>
+  return `<section><div class="section-head"><h2>Suivis</h2><span class="spacer"></span>${HEBERGE === "cloudflare" ? `<button class="btn" data-action="agenda-params"${dis()}>Agenda Google</button>` : ""}<button class="btn primary" data-action="new-suivi"${dis()}>Ajouter un suivi</button></div>
   <div class="panel">${!all.length ? `<div class="empty"><h3>Aucun suivi pour l'instant</h3><p>Planifie tes appels, courriels et relances. Un suivi répété tous les N jours se recrée tout seul quand tu le marques fait.</p><button class="btn primary" data-action="new-suivi"${dis()}>Planifier un suivi</button></div>`
     : groups.filter(([, l]) => l.length).map(([g, l]) => `<div class="group-title">${g} · ${l.length}</div><div class="fu-list">${l.map(fuRow).join("")}</div>`).join("")
       + (faits.length ? `<div class="group-title">Faits récemment</div><div class="fu-list">${faits.map(fuRow).join("")}</div>` : "")}</div></section>`;
@@ -887,6 +895,81 @@ function ajouterRappel(prefixe) {
   else zone.insertAdjacentHTML("beforeend", `<label><input type="checkbox" name="${prefixe}rappel" value="${m}" checked> ${libRappel(m)}</label>`);
   $(`#${prefixe}autre-n`).value = "";
 }
+/* ----- Agenda Google (lecture par l'adresse secrète iCal, version Cloudflare) */
+const URL_GOOGLE = /^https:\/\/calendar\.google\.com\/calendar\/ical\/[^\s/]+\/[^\s/]+\/basic\.ics$/;
+let agendaEnCours = null;
+function chargerAgenda() {
+  if (HEBERGE !== "cloudflare") return Promise.resolve();
+  return agendaEnCours ||= fetch("/api/agenda?jours=7", { credentials: "same-origin" })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(d => { S.agenda = { connecte: !!d.connecte, evenements: d.evenements || [], erreur: d.erreur || "", charge: true }; })
+    .catch(() => { S.agenda = { ...S.agenda, erreur: S.agenda.connecte ? "agenda momentanément indisponible" : "", charge: true }; })
+    .finally(() => { agendaEnCours = null; scheduleRender(); });
+}
+const tzLocal = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (_) { return ""; } };
+function lienGoogle(s) {
+  const d = debutRdv(s); if (!d) return "";
+  const f = x => `${x.getFullYear()}${pad(x.getMonth() + 1)}${pad(x.getDate())}T${pad(x.getHours())}${pad(x.getMinutes())}00`;
+  const fin = new Date(d.getTime() + 3600000), cl = clientName(s.clientId);
+  const details = [s.sujet, s.closer ? `Closer : ${s.closer}` : "", S.clients.get(s.clientId)?.telephone ? `Tél. : ${S.clients.get(s.clientId).telephone}` : ""].filter(Boolean).join("\n");
+  const q = new URLSearchParams({ action: "TEMPLATE", text: `RDV ${cl}${s.closer ? ` avec ${s.closer}` : ""}`, dates: `${f(d)}/${f(fin)}`, details });
+  if (tzLocal()) q.set("ctz", tzLocal());
+  return `https://calendar.google.com/calendar/render?${q}`;
+}
+function conflitsRdv(s) {
+  const d = debutRdv(s); if (!d || !S.agenda.evenements.length) return [];
+  const a = d.getTime(), b = a + 3600000;
+  return S.agenda.evenements.filter(e => !e.journee && Date.parse(e.debut) < b && Date.parse(e.fin) > a);
+}
+const jourLocal = e => e.journee ? e.debut.slice(0, 10) : isoLocal(new Date(e.debut));
+const heureLocal = iso => { const x = new Date(iso); return `${pad(x.getHours())} h ${pad(x.getMinutes())}`; };
+function viewAgenda() {
+  if (HEBERGE !== "cloudflare") return "";
+  if (!S.agenda.charge) return "";
+  if (!S.agenda.connecte) return `<section><div class="panel panel-pad agenda-vide"><div><h3>Connecte ton agenda Google</h3>
+      <p class="muted small" style="margin:4px 0 0">Ta semaine Google s'affichera ici, à côté de tes rendez-vous clients.</p></div>
+      <button class="btn primary" data-action="agenda-params"${dis()}>Connecter</button></div></section>`;
+  const t = today(), jours = [];
+  for (let i = 0; i < 7; i++) jours.push(addDays(t, i));
+  const items = [
+    ...S.agenda.evenements.map(e => ({ jour: jourLocal(e), tri: e.journee ? "00:00" : heureLocal(e.debut).replace(" h ", ":"), html: `<div class="ag-item ag-google"><span class="ag-h num">${e.journee ? "Journée" : esc(heureLocal(e.debut))}</span><span class="ag-t">${esc(e.titre)}${e.lieu ? `<span class="sub">${esc(e.lieu)}</span>` : ""}</span><span class="chip recevoir">Google</span></div>` })),
+    ...[...S.suivis.values()].filter(s => s.type === "rencontre" && s.statut === "a_faire" && s.datePrevue >= t && s.datePrevue <= jours[6])
+      .map(s => ({ jour: s.datePrevue, tri: s.heure || "99:99", html: `<div class="ag-item ag-rdv"><span class="ag-h num">${s.heure ? esc(s.heure.replace(":", " h ")) : "—"}</span><span class="ag-t"><button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">${esc(clientName(s.clientId))}</button>${s.closer ? `<span class="sub">avec ${esc(s.closer)}</span>` : ""}</span><span class="chip mois">RDV client</span></div>` })),
+  ];
+  const parJour = jours.map(j => ({ j, l: items.filter(x => x.jour === j).sort((a, b) => a.tri.localeCompare(b.tri)) })).filter(x => x.l.length);
+  const nomJour = j => j === t ? "Aujourd'hui" : j === addDays(t, 1) ? "Demain" : parseIso(j).toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "short" });
+  return `<section><div class="section-head"><h3>Mon agenda</h3><span class="spacer"></span><button class="btn sm" data-action="agenda-params"${dis()}>Agenda Google</button></div>
+    ${S.agenda.erreur ? `<div class="banner bad" style="margin-bottom:8px">Agenda Google : ${esc(S.agenda.erreur)}. <button class="btn link" data-action="agenda-params">Vérifier l'adresse</button></div>` : ""}
+    <div class="panel">${parJour.length ? parJour.map(x => `<div class="group-title">${esc(nomJour(x.j))}</div>${x.l.map(i => i.html).join("")}`).join("") : `<div class="empty"><p>Rien de prévu cette semaine.</p></div>`}</div></section>`;
+}
+function formAgenda() {
+  const ag = S.parametres.get("agenda") || {};
+  openDlg(`<form class="dlg" id="form-agenda" novalidate>${head("Agenda Google")}
+    <div class="dlg-body">
+      <p style="margin:0">L'application lit ton agenda Google pour afficher ta semaine à côté de tes rendez-vous clients. Elle ne modifie jamais ton agenda.</p>
+      <ol class="small" style="margin:0;padding-left:20px;display:grid;gap:4px">
+        <li>Sur un ordinateur, ouvre <strong>calendar.google.com</strong>.</li>
+        <li>Clique sur la roue dentée ⚙, puis <strong>Paramètres</strong>.</li>
+        <li>À gauche, sous « Paramètres de mes agendas », clique sur ton agenda.</li>
+        <li>Descends jusqu'à <strong>Adresse secrète au format iCal</strong> et copie-la.</li>
+        <li>Colle-la ci-dessous.</li>
+      </ol>
+      ${field("Adresse secrète au format iCal", `<input id="ag-url" name="icalUrl" type="url" inputmode="url" value="${esc(ag.icalUrl || "")}" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics">`, "", "Garde cette adresse pour toi : elle donne accès en lecture à ton agenda. Elle reste dans ta base privée.")}
+      <p class="err-msg" id="ag-err" hidden></p></div>
+    <div class="dlg-foot">${ag.icalUrl ? `<button type="button" class="btn danger" data-action="agenda-suppr">Déconnecter</button>` : ""}<span class="spacer"></span>
+      <button type="button" class="btn" data-action="close">Annuler</button><button class="btn primary" type="submit">Connecter</button></div></form>`,
+    el => {
+      const form = $("#form-agenda", el); form.icalUrl.focus();
+      form.addEventListener("submit", async e => {
+        e.preventDefault();
+        const u = form.icalUrl.value.trim();
+        if (!URL_GOOGLE.test(u)) return showErr("#ag-err", "Ce n'est pas une adresse iCal Google. Elle commence par https://calendar.google.com/calendar/ical/ et finit par basic.ics.");
+        await write(() => S.db.collection("parametres").doc("agenda").set({ icalUrl: u }), "Agenda Google connecté");
+        setTimeout(chargerAgenda, 300);
+      });
+    });
+}
+
 function carteRdv(s) {
   const r = rappelsDe(s), cal = HEBERGE === "cloudflare"
     ? `<a class="btn sm" href="/api/ics/${encodeURIComponent(s.id)}.ics">Ajouter au calendrier</a>`
@@ -897,7 +980,8 @@ function carteRdv(s) {
     <div class="rdv-quand num">${esc(s.datePrevue === today() ? "Aujourd'hui" : fmtDate(s.datePrevue))}${s.heure ? ` · ${esc(s.heure.replace(":", " h "))}` : ""}</div>
     ${s.sujet ? `<div class="small">${esc(s.sujet)}</div>` : ""}
     <div class="small muted">${r.length ? `Rappels : ${esc(r.map(libRappel).join(", "))} avant` : "Aucun rappel"}${r.length && !s.heure ? " · ajoute l'heure pour les activer" : ""}</div>
-    <div class="toolbar">${s.heure ? cal : ""}<button class="btn sm" data-action="fait" data-id="${esc(s.id)}"${dis()}>Fait</button><button class="btn sm" data-action="edit-suivi" data-id="${esc(s.id)}"${dis()}>Modifier</button></div>
+    ${conflitsRdv(s).length ? `<div class="small" style="color:var(--warn)">⚠ En même temps que « ${esc(conflitsRdv(s).map(e => e.titre).join(" », « "))} » dans ton agenda</div>` : ""}
+    <div class="toolbar">${s.heure ? cal + `<a class="btn sm" href="${esc(lienGoogle(s))}" target="_blank" rel="noopener noreferrer">Google Agenda</a>` : ""}<button class="btn sm" data-action="fait" data-id="${esc(s.id)}"${dis()}>Fait</button><button class="btn sm" data-action="edit-suivi" data-id="${esc(s.id)}"${dis()}>Modifier</button></div>
   </div>`;
 }
 const rdvsAVenir = (jours = 14) => [...S.suivis.values()].filter(s => s.type === "rencontre" && s.statut === "a_faire" && s.datePrevue && s.datePrevue >= today() && s.datePrevue <= addDays(today(), jours))
@@ -1357,6 +1441,8 @@ document.addEventListener("click", e => {
     case "new-suivi": formSuivi(null, { clientId: el.dataset.client }); break;
     case "new-rdv": formSuivi(null, { clientId: el.dataset.client, type: "rencontre" }); break;
     case "rappel-ajout": ajouterRappel(el.dataset.prefixe); break;
+    case "agenda-params": formAgenda(); break;
+    case "agenda-suppr": if (armed(el)) write(() => S.db.collection("parametres").doc("agenda").delete(), "Agenda Google déconnecté").then(() => { S.agenda = { connecte: false, evenements: [], erreur: "", charge: true }; render(); }); break;
     case "ics-info": toast("L'ajout au calendrier se fait depuis l'application installée (version Cloudflare)."); break;
     case "edit-suivi": formSuivi(S.suivis.get(id)); break;
     case "fait": marquerFait(id); break;
@@ -1450,6 +1536,9 @@ function restDb() {
 
 /* ---------- Démarrage */
 setInterval(() => { if (!dlg.open && !document.hidden) scheduleRender(); }, 60000);
+setInterval(() => { if (!document.hidden) chargerAgenda(); }, 600000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) chargerAgenda(); });
+chargerAgenda();
 const saved = lsGet("onglet"); if (saved && ["tableau", "ventes", "clients", "suivis", "factures", "sauvegarde"].includes(saved)) S.tab = saved;
 render();
 (async () => {
