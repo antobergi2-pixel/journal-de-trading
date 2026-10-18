@@ -6,44 +6,28 @@
 /* Mise en page : registre de travail — barre d'onglets en haut, contenu en colonne unique,
    tableaux denses à chiffres alignés, fiches et formulaires en panneaux modaux. */
 :root {
-  --bg: #f4f5f2;
-  --surface: #ffffff;
-  --surface-2: #eceee9;
-  --line: #d7dbd3;
-  --fg: #1a2320;
-  --muted: #5a6661;
-  --accent: #0f5c6e;
-  --accent-fg: #ffffff;
-  --accent-soft: #d9e9ed;
-  --ok: #2b7a4b;
-  --ok-soft: #dff0e5;
-  --warn: #8f5a00;
-  --warn-soft: #f8ecd2;
-  --bad: #b3261e;
-  --bad-soft: #f7dfdc;
-  --neutral-soft: #e6e8ee;
-  --shadow: 0 10px 30px rgba(20, 35, 30, .14);
+  /* Thème sombre unique, voulu par l'utilisateur : bleu nuit, cartes surélevées, turquoise pour l'action */
+  --bg: #0e131b;
+  --surface: #161d28;
+  --surface-2: #1d2633;
+  --line: #2a3546;
+  --fg: #e9eef5;
+  --muted: #93a1b5;
+  --accent: #3cc6d6;
+  --accent-fg: #04232a;
+  --accent-soft: #10323b;
+  --ok: #4fd18f;
+  --ok-soft: #12301f;
+  --warn: #f2b84b;
+  --warn-soft: #382b10;
+  --bad: #ff7d72;
+  --bad-soft: #3b1918;
+  --neutral-soft: #222c3a;
+  --shadow: 0 12px 34px rgba(0, 0, 0, .55);
   --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --f-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --r: 8px;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #111614; --surface: #19201d; --surface-2: #212926; --line: #313a36;
-    --fg: #e5ebe8; --muted: #98a49f; --accent: #63b7ca; --accent-fg: #062228; --accent-soft: #15343b;
-    --ok: #6fc191; --ok-soft: #173124; --warn: #e3ad4d; --warn-soft: #382a0f;
-    --bad: #f0897f; --bad-soft: #3c1a17; --neutral-soft: #262b33;
-    --shadow: 0 10px 30px rgba(0, 0, 0, .5);
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #111614; --surface: #19201d; --surface-2: #212926; --line: #313a36;
-  --fg: #e5ebe8; --muted: #98a49f; --accent: #63b7ca; --accent-fg: #062228; --accent-soft: #15343b;
-  --ok: #6fc191; --ok-soft: #173124; --warn: #e3ad4d; --warn-soft: #382a0f;
-  --bad: #f0897f; --bad-soft: #3c1a17; --neutral-soft: #262b33;
-  --shadow: 0 10px 30px rgba(0, 0, 0, .5);
+  --r: 12px;
   color-scheme: dark;
 }
 
@@ -248,6 +232,24 @@ nav.tabs .court { display: none; }
 @media (prefers-reduced-motion: no-preference) {
   .btn, nav.tabs button { transition: background-color .15s, border-color .15s, color .15s; }
 }
+
+/* Finitions du thème sombre */
+.panel, .rdv, .kpi { box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 6px 18px rgba(0,0,0,.25); }
+.btn { border-radius: 8px; background: var(--surface-2); }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { box-shadow: 0 4px 14px rgba(60,198,214,.25); }
+.btn.link { background: none; }
+header.top { background: var(--bg); }
+.field input, .field select, .field textarea { background: var(--bg); }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+th { background: var(--surface-2); }
+.kpi .value { color: var(--fg); }
+.kpi.alert .value { color: var(--bad); }
+.rdv { border-left-color: var(--accent); }
+.banner { background: var(--warn-soft); border-color: rgba(242,184,75,.35); }
+.banner.alerte { background: var(--accent-soft); border-color: var(--accent); }
+.banner.bad { background: var(--bad-soft); border-color: rgba(255,125,114,.35); }
+@media (max-width: 640px) { nav.tabs { background: rgba(22,29,40,.96); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); } }
 </style>
 
 <header class="top">

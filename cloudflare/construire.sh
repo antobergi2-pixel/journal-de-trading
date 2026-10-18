@@ -8,10 +8,10 @@ rm -rf "$ici/public" && mkdir -p "$ici/public"
   printf '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
   printf '<meta name="hebergement" content="cloudflare"><meta name="robots" content="noindex">'
   # application installable (écran d'accueil iPhone et Android)
-  printf '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#0f5c6e">'
+  printf '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#0e131b">'
   printf '<link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="icon" type="image/png" href="/icone-192.png">'
   printf '<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">'
-  printf '<meta name="apple-mobile-web-app-title" content="Commissions"><meta name="apple-mobile-web-app-status-bar-style" content="default">'
+  printf '<meta name="apple-mobile-web-app-title" content="Commissions"><meta name="apple-mobile-web-app-status-bar-style" content="black">'
   printf '</head><body>\n'
   cat "$ici/../site/index.html"
   printf '\n</body></html>\n'
