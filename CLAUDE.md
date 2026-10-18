@@ -42,6 +42,7 @@ L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout es
 - Mise en ligne : `cloudflare/deployer.sh`, avec CLOUDFLARE_API_TOKEN et EMAIL_AUTORISE dans l'environnement (CLOUDFLARE_ACCOUNT_ID facultatif). Le réseau de l'environnement doit autoriser `api.cloudflare.com`.
 - Ne jamais committer l'adresse courriel ni les identifiants Cloudflare : le dépôt est public. Le script les écrit seulement dans `cloudflare/.deploiement/`, qui est ignoré par Git.
 - Après toute modification de `site/index.html` : republier l'artifact claude.ai ET relancer `deployer.sh`.
+- **Mise en ligne automatique** : `.github/workflows/deployer.yml` lance `deployer.sh` sur GitHub Actions à chaque push touchant `site/` ou `cloudflare/` (secrets du dépôt : CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, EMAIL_AUTORISE). Le journal est public : il n'affiche que les étapes.
 - Le site Cloudflare est aussi l'**application téléphone** de l'utilisateur (application web installable : `cloudflare/pwa/`, ajoutée à l'écran d'accueil). Si la page ou les fichiers mis en cache changent de façon importante, incrémenter `CACHE` dans `pwa/sw.js`.
 
 ## Agenda Google
