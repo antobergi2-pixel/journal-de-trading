@@ -1,0 +1,38 @@
+# Met l'application en ligne sur Cloudflare à chaque modification du site.
+# Secrets à ajouter une fois dans GitHub (Settings → Secrets and variables → Actions) :
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, EMAIL_AUTORISE
+# Le dépôt est public : le journal n'affiche que les étapes, jamais les identifiants.
+name: Mise en ligne Cloudflare
+on:
+  push:
+    branches: [claude/client-sales-database-ufxbf1]
+    paths: ["site/**", "cloudflare/**", ".github/workflows/deployer.yml"]
+  workflow_dispatch:
+concurrency: deploiement
+jobs:
+  deployer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Déployer
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EMAIL_AUTORISE: ${{ secrets.EMAIL_AUTORISE }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$EMAIL_AUTORISE" ]; then
+            echo "::error::Ajoute les secrets CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID et EMAIL_AUTORISE dans les réglages du dépôt."; exit 1
+          fi
+          set +e
+          bash cloudflare/deployer.sh > journal.txt 2>&1; code=$?
+          grep -E '^[0-9]/6' journal.txt
+          if [ $code -ne 0 ]; then
+            echo "::error::La mise en ligne a échoué. Fin du journal (identifiants masqués) :"
+            tail -n 20 journal.txt | sed -E 's/[0-9a-f]{32,}/•••/g; s/[0-9a-f-]{36}/•••/g; s/[A-Za-z0-9.-]+\.cloudflareaccess\.com/•••/g'
+          else
+            echo "Mise en ligne terminée."
+          fi
+          exit $code
