@@ -9,6 +9,10 @@ binding = "DB"
 database_name = "suivi-commissions"
 database_id = "A_REMPLIR"
 
+# Workers AI pour l'assistant (dictée -> actions)
+[ai]
+binding = "AI"
+
 [vars]
 TEAM_DOMAIN = ""
 POLICY_AUD = ""

@@ -3,6 +3,7 @@
 //   PUT    /api/:collection/:id  crée ou remplace un document
 //   PATCH  /api/:collection/:id  fusionne des champs dans un document existant
 //   DELETE /api/:collection/:id  supprime un document
+//   POST   /api/ia               assistant : note dictée -> actions proposées (rien n'est enregistré)
 // Chaque requête doit porter le jeton de Cloudflare Access : sans lui, rien n'est lu ni écrit,
 // même si l'application Access était mal configurée.
 
@@ -11,6 +12,7 @@ import { URL_GOOGLE, lireAgenda, occurrences } from "../agenda.js";
 const COLLECTIONS = new Set(["clients", "ventes", "paiements", "suivis", "factures", "parametres"]);
 const ID_VALIDE = /^[A-Za-z0-9_.~:@+-]{1,200}$/;
 const TAILLE_MAX = 256 * 1024;
+const MODELE_IA = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 const json = (corps, status = 200) =>
   new Response(JSON.stringify(corps), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -64,6 +66,23 @@ export async function onRequest({ request, env, params }) {
     if (!rep.ok) return json({ connecte: true, erreur: rep.status === 404 ? "adresse introuvable chez Google" : `Google a répondu ${rep.status}`, evenements: [] });
     try { return json({ connecte: true, evenements: occurrences(lireAgenda(await rep.text()), de, a) }); }
     catch { return json({ connecte: true, erreur: "agenda illisible", evenements: [] }); }
+  }
+
+  // Assistant : transforme une note dictée en actions (Workers AI). La page envoie la consigne complète ; rien n'est écrit ici.
+  if (morceaux.length === 1 && morceaux[0] === "ia" && methode === "POST") {
+    if (!env.AI) return json({ erreur: "l'IA n'est pas activée sur ce site (liaison AI manquante)" }, 501);
+    let corps; try { corps = await request.json(); } catch { return json({ erreur: "requête invalide" }, 400); }
+    const prompt = typeof corps?.prompt === "string" ? corps.prompt : "";
+    if (!prompt || prompt.length > 30000) return json({ erreur: "texte vide ou trop long" }, 400);
+    try {
+      const r = await env.AI.run(MODELE_IA, {
+        messages: [{ role: "system", content: "Tu réponds uniquement en JSON valide, sans texte autour." }, { role: "user", content: prompt }],
+        response_format: { type: "json_object" }, max_tokens: 2048, temperature: 0.1 });
+      let res = r?.response ?? r;
+      if (typeof res === "string") { const m = res.match(/\{[\s\S]*\}/); res = m ? JSON.parse(m[0]) : null; }
+      if (!res || typeof res !== "object") return json({ erreur: "réponse de l'IA illisible" }, 502);
+      return json({ resultat: res });
+    } catch (e) { return json({ erreur: "l'IA n'a pas pu répondre, réessaie" }, 502); }
   }
 
   if (morceaux.length !== 2) return json({ erreur: "chemin inconnu" }, 404);

@@ -319,7 +319,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
   .kpi:not(.hero) .sub { display: none; }
   .kpi .value { font-size: 1.12rem; }
   .kpi.hero .value { font-size: 1.9rem; }
-  .wrap { padding-block: 0 calc(96px + env(safe-area-inset-bottom, 0px)); }
+  .wrap { padding-block: 0 calc(150px + env(safe-area-inset-bottom, 0px)); }
   #toast { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
   /* champs à 16 px : l'iPhone ne zoome plus quand on tape */
   input, select, textarea { font-size: 16px !important; }
@@ -432,6 +432,35 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
   .cal-mini { font-size: .62rem; padding: 1px 3px; }
   .cal-mini i { display: none; }
 }
+
+/* ---------- Assistant (dictée) */
+.ia-fab { position: fixed; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 15; display: inline-flex; align-items: center; gap: 8px;
+  border: 0; cursor: pointer; padding: 12px 18px 12px 14px; border-radius: 16px; font-weight: 700; font-size: .92rem; color: #fff;
+  background: linear-gradient(135deg, #2bb5ad, #2f6fe0 75%, #6a4dff); box-shadow: 0 12px 28px -10px rgba(47,111,224,.9), inset 0 1px 0 rgba(255,255,255,.3); }
+.ia-fab svg { width: 20px; height: 20px; }
+.ia-fab:active { transform: scale(.96); }
+.ia-saisie { position: relative; }
+.ia-saisie textarea { width: 100%; min-height: 130px; resize: vertical; padding: 12px 56px 12px 14px; border: 1px solid transparent; border-radius: 14px; background: var(--surface-2); color: var(--fg); line-height: 1.45; }
+.ia-saisie textarea:focus { outline: none; border-color: rgba(53,201,192,.6); box-shadow: 0 0 0 4px var(--accent-soft); }
+.ia-micro { position: absolute; right: 10px; bottom: 12px; width: 40px; height: 40px; border-radius: 12px; border: 0; cursor: pointer; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); }
+.ia-micro svg { width: 20px; height: 20px; }
+.ia-micro.actif { background: var(--bad); color: #fff; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(255,95,87,.18); } }
+.ia-liste { display: grid; gap: 8px; }
+.ia-carte { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); }
+.ia-txt { display: grid; gap: 2px; min-width: 0; flex: 1 1 200px; }
+.ia-txt .sub { font-size: .8rem; color: var(--muted); }
+.ia-type { font-size: .7rem; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+.t-ia-rdv .ia-type { color: var(--accent); } .t-ia-tache .ia-type { color: var(--cal-t); } .t-ia-vente .ia-type { color: var(--ok); }
+.t-ia-suivi .ia-type { color: var(--warn); } .t-ia-client .ia-type { color: var(--cal-g); }
+.ia-act { display: flex; gap: 6px; flex: none; }
+.ia-ok { font-size: .82rem; font-weight: 650; color: var(--ok); }
+.fait-ia { opacity: .65; }
+@media (max-width: 640px) {
+  .ia-fab { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); right: 14px; padding: 11px 15px 11px 12px; }
+  #toast { bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
+}
 </style>
 
 <header class="top">
@@ -456,6 +485,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 
 <dialog id="dlg"><div id="dlg-in"></div></dialog>
 <div id="toast" hidden></div>
+<button type="button" class="ia-fab" data-action="ia-ouvrir" aria-label="Assistant : dicter un ajout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg><span>Dicter</span></button>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -1379,8 +1409,8 @@ function alertesRdv() {
   return out.sort((a, b) => a.reste - b.reste).map(({ s, dans }) =>
     `<div class="banner alerte"><strong>Rendez-vous dans ${esc(dans)} :</strong> ${esc(clientName(s.clientId))}${s.closer ? ` avec ${esc(s.closer)}` : ""}, ${esc(s.heure.replace(":", " h "))}. <button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">Voir la fiche</button></div>`).join("");
 }
-function formClient(cl) {
-  const c = cl || { statut: "prospect" };
+function formClient(cl, preset = {}) {
+  const c = cl || { statut: "prospect", ...preset };
   openDlg(`<form class="dlg" id="form-client" novalidate>${head(cl ? "Modifier le client" : "Nouveau client")}
     <div class="dlg-body"><div class="grid">
       ${field("Nom", `<input id="cl-nom" name="nom" required value="${esc(c.nom || "")}" autocomplete="off">`)}
@@ -1473,10 +1503,10 @@ function ficheClient(id) {
 }
 
 /* ----- Vente */
-function formVente(v, clientId) {
-  const x = v || { devise: "CAD", tauxCommission: TAUX_DEFAUT / 100, dateVente: today(), statut: "Signé", plan: { mode: "mensualite", premierVersement: addMonths(today(), 1).slice(0, 8) + "01" } };
+function formVente(v, clientId, preset = {}) {
+  const x = v || { ...{ devise: "CAD", tauxCommission: TAUX_DEFAUT / 100, dateVente: today(), statut: "Signé", plan: { mode: "mensualite", premierVersement: addMonths(today(), 1).slice(0, 8) + "01" } }, ...preset };
   const p = x.plan || { mode: "unique" };
-  const cname = v ? clientName(v.clientId) : clientId ? clientName(clientId) : "";
+  const cname = v ? clientName(v.clientId) : clientId ? clientName(clientId) : (preset.client || "");
   const fu = v ? [...S.suivis.values()].filter(s => s.venteId === v.id && s.statut === "a_faire" && s.type === "follow_up").sort(fuSort)[0] : null;
   const modes = [["unique", "Un seul paiement"], ["mensualite", "Mensualité fixe"], ["versements", "Nombre de versements"], ["recurrent", "Récurrent sans fin"]];
   openDlg(`<form class="dlg" id="form-vente" novalidate>${head(v ? "Modifier la vente" : "Nouvelle vente")}
@@ -1632,7 +1662,8 @@ function formPaiement(venteId, montant) {
 /* ----- Suivi */
 function formSuivi(s, preset = {}) {
   const x = s || { type: preset.type || "follow_up", priorite: "normale", datePrevue: preset.date || addDays(today(), 1), heure: preset.heure || "", clientId: preset.clientId || "", venteId: preset.venteId || "",
-                   sujet: preset.type === "rencontre" && preset.clientId ? `Rendez-vous avec ${clientName(preset.clientId)}` : "" };
+                   sujet: preset.sujet || (preset.type === "rencontre" && preset.clientId ? `Rendez-vous avec ${clientName(preset.clientId)}` : ""),
+                   closer: preset.closer || "", duree: preset.duree || 0 };
   const clients = [...S.clients.values()].sort(byName);
   if (!clients.length && x.type !== "tache") { toast("Ajoute d'abord un client.", true); return; }
   const dureeDefaut = x.duree || (x.type === "rencontre" ? 60 : 30);
@@ -1805,6 +1836,194 @@ function toast(msg, bad = false) { const t = $("#toast"); t.textContent = msg; t
 function lsGet(k) { try { return localStorage.getItem("suivi:" + k); } catch (_) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem("suivi:" + k, v); } catch (_) {} }
 
+/* ---------- Assistant : dicter des clients, RDV, tâches, ventes et suivis.
+   Le texte dicté est transformé en actions par l'IA (sample sur claude.ai, Workers AI via /api/ia sur Cloudflare) ;
+   rien n'est enregistré sans que l'utilisateur touche « Ajouter » ou valide le formulaire prérempli. */
+const IA = { texte: "", actions: [], etat: "", erreur: "", ecoute: null };
+const GENRES_SUIVI = ["follow_up", "appel", "courriel", "relance_paiement", "renouvellement"];
+function promptIA(texte) {
+  const t = today(), j = parseIso(t).toLocaleDateString("fr-CA", { weekday: "long" });
+  const noms = [...S.clients.values()].map(c => c.nom).sort((a, b) => a.localeCompare(b, "fr")).slice(0, 300);
+  return `Tu es l'assistant d'un vendeur québécois. Transforme sa note dictée en actions pour son application de suivi.
+Aujourd'hui : ${j} ${t}. Les dates relatives (demain, jeudi, la semaine prochaine) se calculent à partir d'aujourd'hui ; un jour de semaine sans précision = le prochain à venir.
+Clients existants : ${noms.length ? noms.join(" | ") : "(aucun)"}. Si un nom ressemble à un client existant, écris-le exactement comme dans cette liste.
+
+Types d'actions possibles :
+- client : nouveau client. Champs : nom, telephone, courriel, travail, notes, resume (1-2 lignes).
+- rdv : rendez-vous avec un client. Champs : client, date (AAAA-MM-JJ), heure (HH:MM, 24 h), closer (avec qui), sujet, duree (minutes).
+- tache : chose à faire. Champs : sujet, date, heure, client (facultatif).
+- vente : vente signée. Champs : client, nom (produit ou transaction), rev (montant total), mensualite, nb (nombre de versements), premierVersement (date), taux (% de commission, seulement s'il est dit), devise (CAD par défaut).
+- suivi : rappel lié à un client. Champs : client, sujet, date, heure, genre (follow_up, appel, courriel, relance_paiement ou renouvellement).
+
+Règles : n'invente rien ; omets un champ qui n'est pas dit. Les montants sont des nombres (2 500 $ -> 2500). « 14 h 30 » -> "14:30".
+Si un RDV, une vente ou un suivi nomme un client qui n'existe pas, ajoute aussi une action client pour lui, avant.
+Réponds UNIQUEMENT avec un objet JSON : {"actions":[{"type":"...", ...}]}
+
+Note dictée :
+"""${texte}"""`;
+}
+async function analyserIA() {
+  const zone = $("#ia-texte"), texte = (zone?.value || "").trim();
+  IA.texte = texte;
+  if (!texte) return showErr("#ia-err", "Dicte ou écris d'abord ce que tu veux ajouter.");
+  arreterEcoute();
+  IA.etat = "analyse"; IA.erreur = ""; rendreIA();
+  try {
+    let res;
+    if (HEBERGE === "cloudflare") {
+      const r = await fetch("/api/ia", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: promptIA(texte) }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.erreur || `réponse ${r.status}`);
+      res = d.resultat;
+    } else {
+      const sample = await window.claude?.use?.("sample");
+      if (!sample) throw new Error("l'IA n'est pas disponible dans cette vue");
+      res = await sample.json(promptIA(texte), { modelTier: "quick" });
+    }
+    if (typeof res === "string") { const m = res.match(/\{[\s\S]*\}/); res = m ? JSON.parse(m[0]) : null; }
+    const liste = Array.isArray(res?.actions) ? res.actions : [];
+    IA.actions = liste.filter(a => a && ["client", "rdv", "tache", "vente", "suivi"].includes(a.type)).slice(0, 20).map(a => ({ ...a, fait: false }));
+    IA.etat = IA.actions.length ? "resultats" : "";
+    if (!IA.actions.length) IA.erreur = "Je n'ai rien trouvé à ajouter. Précise le client, la date ou le montant, puis réessaie.";
+  } catch (e) {
+    IA.etat = ""; IA.erreur = `L'analyse a échoué : ${e?.message || e?.code || "erreur inconnue"}.`;
+  }
+  rendreIA();
+}
+const txt = v => String(v ?? "").trim();
+const dateOk = d => /^\d{4}-\d{2}-\d{2}$/.test(txt(d)) ? txt(d) : "";
+const heureOk = h => { const m = txt(h).match(/^(\d{1,2})[:h ]?(\d{2})?$/); return m && +m[1] < 24 ? `${pad(+m[1])}:${m[2] || "00"}` : ""; };
+const nombreOk = v => { const n = typeof v === "number" ? v : num(v); return n > 0 ? r2(n) : null; };
+function clientParNom(nom) {
+  const n = txt(nom).toLowerCase(); if (!n) return null;
+  const tous = [...S.clients.values()];
+  return tous.find(c => c.nom.toLowerCase() === n) || tous.find(c => c.nom.toLowerCase().includes(n) || n.includes(c.nom.toLowerCase())) || null;
+}
+async function clientPourIA(nom) {
+  const ex = clientParNom(nom); if (ex) return ex.id;
+  const ref = S.db.collection("clients").doc();
+  await ref.set({ nom: txt(nom), statut: "prospect", travail: "", horaires: "", courriel: "", telephone: "", salaireAnnuel: null, argentDeCote: null, pain: "", goals: "", notes: "", resume: "", lienLetmetalk: "", creeLe: today() });
+  S.clients.set(ref.id, { id: ref.id, nom: txt(nom) });
+  return ref.id;
+}
+// Ce qui manque pour ajouter directement ; sinon on passe par le formulaire prérempli
+function manqueIA(a) {
+  if (a.type === "client") return !txt(a.nom) ? "le nom" : clientParNom(a.nom)?.nom.toLowerCase() === txt(a.nom).toLowerCase() ? "existe" : "";
+  if (a.type === "rdv") return !txt(a.client) ? "le client" : !dateOk(a.date) ? "la date" : "";
+  if (a.type === "tache") return !txt(a.sujet) ? "la tâche" : "";
+  if (a.type === "suivi") return !txt(a.client) ? "le client" : !txt(a.sujet) ? "le sujet" : "";
+  return "formulaire"; // une vente se vérifie toujours dans son formulaire (montants, plan, taux)
+}
+function resumeIA(a) {
+  const quand = [dateOk(a.date) ? fmtDate(dateOk(a.date)) : "", heureOk(a.heure).replace(":", " h ")].filter(Boolean).join(" à ");
+  if (a.type === "client") return { titre: "Nouveau client", ligne: txt(a.nom), sous: [txt(a.telephone), txt(a.courriel), txt(a.travail), txt(a.resume || a.notes)].filter(Boolean).join(" · ") };
+  if (a.type === "rdv") return { titre: "Rendez-vous", ligne: txt(a.client), sous: [quand || "date à préciser", txt(a.closer) ? `avec ${txt(a.closer)}` : "", txt(a.sujet)].filter(Boolean).join(" · ") };
+  if (a.type === "tache") return { titre: "Tâche", ligne: txt(a.sujet), sous: [quand || (dateOk(a.date) ? "" : "aujourd'hui"), txt(a.client)].filter(Boolean).join(" · ") };
+  if (a.type === "suivi") return { titre: TYPES_SUIVI[a.genre] || "Suivi", ligne: txt(a.sujet), sous: [txt(a.client), quand || "demain"].filter(Boolean).join(" · ") };
+  const rev = nombreOk(a.rev), m = nombreOk(a.mensualite), dev = txt(a.devise).toUpperCase() || "CAD";
+  return { titre: "Vente", ligne: [txt(a.client), txt(a.nom)].filter(Boolean).join(" · ") || "Vente",
+           sous: [rev ? money(rev, dev) : "REV à préciser", m ? `${money(m, dev)} / mois` : nombreOk(a.nb) ? `${a.nb} versements` : "", nombreOk(a.taux) ? `${a.taux} %` : ""].filter(Boolean).join(" · ") };
+}
+async function ajouterIA(i) {
+  const a = IA.actions[i]; if (!a || a.fait) return;
+  const base = { venteId: "", statut: "a_faire", priorite: "normale", recurrenceJours: null, resultat: "", dateRealisee: "", creeLe: today() };
+  await write(async () => {
+    if (a.type === "client") {
+      await S.db.collection("clients").doc().set({ nom: txt(a.nom), statut: "prospect", travail: txt(a.travail), horaires: "", courriel: txt(a.courriel), telephone: txt(a.telephone),
+        salaireAnnuel: null, argentDeCote: null, pain: "", goals: "", notes: txt(a.notes), resume: txt(a.resume), lienLetmetalk: "", creeLe: today() });
+    } else if (a.type === "rdv") {
+      const clientId = await clientPourIA(a.client), h = heureOk(a.heure);
+      await S.db.collection("suivis").doc().set({ ...base, clientId, type: "rencontre", sujet: txt(a.sujet) || `Rendez-vous avec ${txt(a.client)}`, datePrevue: dateOk(a.date), heure: h,
+        closer: txt(a.closer), rappels: h ? RAPPELS_DEFAUT : [], duree: nombreOk(a.duree) || 60 });
+    } else if (a.type === "tache") {
+      const clientId = txt(a.client) ? await clientPourIA(a.client) : "";
+      await S.db.collection("suivis").doc().set({ ...base, clientId, type: "tache", sujet: txt(a.sujet), datePrevue: dateOk(a.date) || today(), heure: heureOk(a.heure), duree: 30 });
+    } else if (a.type === "suivi") {
+      const clientId = await clientPourIA(a.client);
+      await S.db.collection("suivis").doc().set({ ...base, clientId, type: GENRES_SUIVI.includes(a.genre) ? a.genre : "follow_up", sujet: txt(a.sujet),
+        datePrevue: dateOk(a.date) || addDays(today(), 1), heure: heureOk(a.heure), duree: 30 });
+    }
+    a.fait = true;
+  }, `${resumeIA(a).titre} ajouté`, false);
+  rendreIA();
+}
+// Ouvre le formulaire habituel, prérempli ; l'assistant se rouvre quand on le ferme
+function completerIA(i) {
+  const a = IA.actions[i]; if (!a) return;
+  if (IA.ecoute) arreterEcoute();
+  IA.texte = $("#ia-texte")?.value ?? IA.texte; IA.retour = i; IA.avant = nbFiches();
+  if (a.type === "client") {
+    const ex = clientParNom(a.nom);
+    return ex ? formClient(S.clients.get(ex.id)) : formClient(null, { nom: txt(a.nom), telephone: txt(a.telephone), courriel: txt(a.courriel), travail: txt(a.travail), notes: txt(a.notes), resume: txt(a.resume) });
+  }
+  const cl = clientParNom(a.client);
+  if (a.type === "vente") {
+    const m = nombreOk(a.mensualite), nb = Math.floor(nombreOk(a.nb) || 0), prem = dateOk(a.premierVersement) || addMonths(today(), 1).slice(0, 8) + "01";
+    const plan = m ? { mode: "mensualite", mensualite: m, premierVersement: prem } : nb > 1 ? { mode: "versements", nb, premierVersement: prem } : { mode: "unique", premierVersement: prem };
+    const preset = { client: cl ? cl.nom : txt(a.client), nom: txt(a.nom), plan, devise: ["CAD", "USD", "EUR"].includes(txt(a.devise).toUpperCase()) ? txt(a.devise).toUpperCase() : "CAD" };
+    if (nombreOk(a.rev)) preset.rev = nombreOk(a.rev);
+    if (nombreOk(a.taux)) preset.tauxCommission = nombreOk(a.taux) / 100;
+    return formVente(null, cl?.id, preset);
+  }
+  const type = a.type === "rdv" ? "rencontre" : a.type === "tache" ? "tache" : (GENRES_SUIVI.includes(a.genre) ? a.genre : "follow_up");
+  formSuivi(null, { type, clientId: cl?.id || "", date: dateOk(a.date) || (a.type === "tache" ? today() : addDays(today(), 1)), heure: heureOk(a.heure),
+                    sujet: txt(a.sujet), closer: txt(a.closer), duree: nombreOk(a.duree) || 0 });
+}
+function viewIA() {
+  const reco = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const cartes = IA.actions.map((a, i) => {
+    const r = resumeIA(a), manque = manqueIA(a);
+    const actions = a.fait ? `<span class="ia-ok">Ajouté</span>`
+      : manque === "existe" ? `<button class="btn sm" data-action="ia-completer" data-i="${i}">Voir la fiche</button>`
+      : manque ? `<button class="btn sm primary" data-action="ia-completer" data-i="${i}"${dis()}>${a.type === "vente" ? "Vérifier et ajouter" : "Compléter"}</button>`
+      : `<button class="btn sm" data-action="ia-completer" data-i="${i}"${dis()}>Modifier</button><button class="btn sm primary" data-action="ia-ajouter" data-i="${i}"${dis()}>Ajouter</button>`;
+    return `<div class="ia-carte t-ia-${a.type}${a.fait ? " fait-ia" : ""}"><div class="ia-txt"><span class="ia-type">${esc(r.titre)}</span><strong>${esc(r.ligne || "—")}</strong>
+      ${r.sous ? `<span class="sub">${esc(r.sous)}</span>` : ""}${manque === "existe" ? `<span class="sub">Ce client existe déjà.</span>` : manque && manque !== "formulaire" ? `<span class="sub" style="color:var(--warn)">Il manque ${esc(manque)}.</span>` : ""}</div>
+      <div class="ia-act">${actions}</div></div>`;
+  }).join("");
+  return `<div class="dlg">${head("Assistant")}<div class="dlg-body">
+    <p class="muted small" style="margin:0">Dis ce que tu veux ajouter, comme à un collègue. Par exemple : « Nouveau client Marc Gagnon, 514 555-1234. RDV avec lui jeudi à 14 h avec Julie. Rappelle-moi de l'appeler lundi. »</p>
+    <div class="ia-saisie">
+      <textarea id="ia-texte" rows="5" placeholder="${reco ? "Touche le micro, ou écris ici…" : "Touche le micro du clavier pour dicter, ou écris ici…"}">${esc(IA.texte)}</textarea>
+      ${reco ? `<button type="button" class="ia-micro${IA.ecoute ? " actif" : ""}" data-action="ia-micro" aria-label="${IA.ecoute ? "Arrêter la dictée" : "Dicter"}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>` : ""}
+    </div>
+    ${IA.ecoute ? `<p class="small" style="margin:0;color:var(--accent)">Je t'écoute… touche le micro pour arrêter.</p>` : ""}
+    <p class="err-msg" id="ia-err"${IA.erreur ? "" : " hidden"}>${esc(IA.erreur)}</p>
+    ${IA.etat === "analyse" ? `<div class="preview">Analyse en cours…</div>` : ""}
+    ${IA.actions.length ? `<div class="ia-liste">${cartes}</div>` : ""}
+  </div><div class="dlg-foot">${IA.actions.length ? `<button type="button" class="btn" data-action="ia-vider">Effacer</button>` : ""}<span class="spacer"></span>
+    <button type="button" class="btn primary" data-action="ia-analyser"${IA.etat === "analyse" ? " disabled" : ""}>${IA.actions.length ? "Analyser de nouveau" : "Analyser"}</button></div></div>`;
+}
+// Redessine l'assistant seulement s'il est à l'écran (jamais par-dessus un formulaire ouvert depuis lui)
+function rendreIA() {
+  const zone = $("#ia-texte"); if (!zone || !dlg.open) return;
+  IA.texte = zone.value; $("#dlg-in").innerHTML = viewIA();
+}
+function ouvrirIA() { IA.ouvert = true; IA.retour = null; openDlg(viewIA(), el => { if (!IA.actions.length) $("#ia-texte", el)?.focus(); }); }
+const nbFiches = () => S.clients.size + S.ventes.size + S.suivis.size;
+// Fermeture : si c'était un formulaire ouvert depuis l'assistant, on revient à l'assistant (l'action est cochée si une fiche a été ajoutée)
+dlg.addEventListener("close", () => {
+  if (IA.retour !== null && IA.retour !== undefined && IA.ouvert) {
+    const a = IA.actions[IA.retour]; if (a && nbFiches() > IA.avant) a.fait = true;
+    IA.retour = null; setTimeout(() => { if (!dlg.open) openDlg(viewIA()); }, 250); return;
+  }
+  IA.ouvert = false; arreterEcoute();
+});
+function basculerEcoute() {
+  if (IA.ecoute) return arreterEcoute();
+  const R = window.SpeechRecognition || window.webkitSpeechRecognition; if (!R) return;
+  const rec = new R(); rec.lang = "fr-CA"; rec.continuous = true; rec.interimResults = true;
+  const depart = ($("#ia-texte")?.value || "").trim();
+  rec.onresult = e => {
+    let dit = ""; for (let k = 0; k < e.results.length; k++) dit += e.results[k][0].transcript;
+    const zone = $("#ia-texte"); if (zone) { zone.value = (depart ? depart + " " : "") + dit.trim(); IA.texte = zone.value; }
+  };
+  rec.onerror = e => { if (e.error === "not-allowed") IA.erreur = "Le micro est refusé : autorise-le dans les réglages, ou utilise le micro du clavier."; };
+  rec.onend = () => { IA.ecoute = null; rendreIA(); };
+  try { rec.start(); IA.ecoute = rec; IA.erreur = ""; rendreIA(); } catch (_) { IA.ecoute = null; }
+}
+function arreterEcoute() { if (IA.ecoute) { try { IA.ecoute.stop(); } catch (_) {} IA.ecoute = null; } }
+
 /* ---------- Événements */
 document.addEventListener("click", e => {
   const col = e.target.closest(".cal-col");
@@ -1859,6 +2078,12 @@ document.addEventListener("click", e => {
     case "fact-suppr": if (armed(el)) write(() => S.db.collection("factures").doc(factureId(el.dataset.mois)).delete(), "Facture supprimée", false); break;
     case "copier": copier(el.dataset.cible, el); break;
     case "restore-go": restaurer(el); break;
+    case "ia-ouvrir": ouvrirIA(); break;
+    case "ia-analyser": analyserIA(); break;
+    case "ia-micro": basculerEcoute(); break;
+    case "ia-ajouter": ajouterIA(Number(el.dataset.i)); break;
+    case "ia-completer": completerIA(Number(el.dataset.i)); break;
+    case "ia-vider": IA.actions = []; IA.texte = ""; IA.erreur = ""; arreterEcoute(); if ($("#ia-texte")) $("#ia-texte").value = ""; rendreIA(); break;
   }
 });
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) { S.tab = b.dataset.tab; lsSet("onglet", S.tab); render(); } });

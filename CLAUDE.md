@@ -54,6 +54,12 @@ L'utilisateur veut héberger le site sur Cloudflare (il travaille seul). Tout es
 - **Tâches** : `suivis` de type `tache`, client facultatif (`clientId` vide = tâche perso), heure et `duree` (minutes) facultatives. Vue Jour de l'Agenda : liste « À faire » avec cases à cocher et ajout rapide ; les tâches avec heure s'affichent dans la grille (violet).
 - Le connecteur Google Calendar de claude.ai est branché au compte de l'utilisateur (à activer dans la conversation) : il permet à Claude de lire ou créer des événements sur demande, indépendamment de l'application.
 
+## Assistant (dictée)
+
+- Bouton « Dicter » flottant sur tous les écrans : l'utilisateur dicte (micro de la page si le navigateur le permet, sinon micro du clavier iPhone) ce qu'il veut ajouter : clients, RDV, tâches, ventes, suivis.
+- L'IA transforme la note en actions proposées (JSON `{actions:[{type: client|rdv|tache|vente|suivi, ...}]}`) ; la consigne est construite dans la page (`promptIA`). Sur Cloudflare : `POST /api/ia` avec Workers AI (liaison `AI` dans `wrangler.toml`, modèle Llama 3.3 70B). Sur claude.ai : capacité `sample`.
+- Rien n'est enregistré sans confirmation : « Ajouter » écrit directement (client, RDV, tâche, suivi complets) ; sinon le formulaire habituel s'ouvre prérempli. Une vente passe toujours par son formulaire.
+
 ## Import de clients
 
 L'utilisateur peut envoyer un dossier ou un export Letmetalk (CSV : nom, téléphone, courriel, date de création, dernière activité, étiquette, lien) pour créer ses clients. Écrire directement dans D1 avec l'API Cloudflare (`/d1/database/<uuid>/query`, collection `clients`), sans doublon : un client existant (même nom) est complété, jamais écrasé. Le résumé ne contient que ce que le dossier dit : ne rien inventer. Ces données ne vont jamais dans le dépôt.
