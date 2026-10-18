@@ -76,6 +76,19 @@ print(json.dumps({"name":"Moi seulement","decision":"allow","precedence":1,"incl
   echo "$rep" | verifie "règle Access"
 fi
 aud=$(cf "$API/access/apps/$id_app" | champ result.aud)
+# Exception pour le flux d'abonnement (/flux) : Google Agenda doit le lire sans se connecter.
+# Le flux reste protégé par son jeton secret (voir functions/flux/[jeton].js).
+id_flux=$(echo "$apps" | python3 -c 'import json,sys
+for a in json.load(sys.stdin).get("result") or []:
+    if a.get("domain") == sys.argv[1]: print(a["id"]); break' "$domaine/flux")
+if [ -z "$id_flux" ]; then
+  rep=$(cf -X POST "$API/access/apps" -d "$(python3 -c 'import json,sys
+print(json.dumps({"name":"Suivi des commissions - flux agenda","type":"self_hosted","domain":sys.argv[1]+"/flux","session_duration":"24h","app_launcher_visible":False}))' "$domaine")")
+  echo "$rep" | verifie "exception Access du flux"
+  id_flux=$(echo "$rep" | champ result.id)
+  rep=$(cf -X POST "$API/access/apps/$id_flux/policies" -d '{"name":"Flux public (jeton secret)","decision":"bypass","precedence":1,"include":[{"everyone":{}}]}')
+  echo "$rep" | verifie "règle du flux"
+fi
 echo "    équipe $equipe, accès réservé à $EMAIL_AUTORISE"
 
 echo "4/6 Préparation (copie de travail, rien n'est écrit dans le dépôt)"

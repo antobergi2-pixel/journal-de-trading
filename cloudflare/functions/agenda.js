@@ -23,7 +23,7 @@ function decalage(instant, tz) {
   return Date.UTC(+o.year, +o.month - 1, +o.day, +o.hour, +o.minute, +o.second) - instant;
 }
 // Heure murale (dans le fuseau tz) -> instant UTC
-function versUtc(y, m, d, h, mi, s, tz) {
+export function versUtc(y, m, d, h, mi, s, tz) {
   const brut = Date.UTC(y, m - 1, d, h, mi, s);
   if (!tz) return brut;
   try { let t = brut - decalage(brut, tz); t = brut - decalage(t, tz); return t; } catch { return brut; }

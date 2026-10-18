@@ -37,6 +37,10 @@ Les fichiers de l'application sont dans `pwa/` : manifeste, service worker et ic
 
 Dans l'application : **Agenda Google** (accueil ou onglet Suivis), puis colle l'**adresse secrète au format iCal** de ton agenda (calendar.google.com → ⚙ Paramètres → ton agenda → « Adresse secrète au format iCal »). Ta semaine Google s'affiche alors à l'accueil avec tes RDV clients. L'analyse de l'agenda est dans `functions/agenda.js`.
 
+## Voir ses RDV dans Google Agenda
+
+Dans l'application : **Agenda → Synchroniser → Créer mon adresse**, puis ajoute l'adresse dans Google Agenda (**Autres agendas → + → À partir de l'URL**) ou sur iPhone (**Réglages → Calendrier → Comptes → Ajouter un compte → Autre → Ajouter un calendrier avec abonnement**). Le flux est servi par `functions/flux/[jeton].js`, hors de Cloudflare Access, protégé par son jeton secret.
+
 ## Ne rien perdre
 
 - **D1 Time Travel** garde automatiquement l'historique de la base. Tu peux la remettre dans l'état d'une minute précise des 30 derniers jours, ou des 7 derniers jours sur le forfait gratuit : `npx wrangler d1 time-travel restore suivi-commissions --timestamp=...`.

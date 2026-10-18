@@ -234,7 +234,7 @@ nav.tabs .court { display: none; }
 }
 
 /* ---------- Agenda */
-:root { --cal-g: #6aa8ff; --cal-g-soft: #16294a; }
+:root { --cal-g: #6aa8ff; --cal-g-soft: #16294a; --cal-t: #b892ff; --cal-t-soft: #261d40; }
 .cal { display: grid; gap: 14px; }
 .cal-barre { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
 .seg { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
@@ -272,7 +272,19 @@ nav.tabs .court { display: none; }
 .t-rdv { background: var(--accent-soft); border-color: var(--accent); } .cal-puce.t-rdv, .cal-mini.t-rdv { color: var(--accent); }
 .t-suivi { background: var(--warn-soft); border-color: var(--warn); } .cal-puce.t-suivi, .cal-mini.t-suivi { color: var(--warn); }
 .t-versement { background: var(--ok-soft); border-color: var(--ok); } .cal-puce.t-versement, .cal-mini.t-versement { color: var(--ok); }
-.t-google { background: var(--cal-g-soft); border-color: var(--cal-g); } .cal-puce.t-google, .cal-mini.t-google { color: var(--cal-g); }
+.t-google { background: var(--cal-g-soft); border-color: var(--cal-g); }
+.t-tache { background: var(--cal-t-soft); border-color: var(--cal-t); } .cal-puce.t-tache, .cal-mini.t-tache { color: var(--cal-t); }
+.taches { padding: 12px 14px; display: grid; gap: 6px; }
+.taches-tete { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tache { display: flex; align-items: center; gap: 10px; }
+.coche { width: 24px; height: 24px; flex: none; border-radius: 50%; border: 2px solid var(--cal-t); background: none; color: var(--accent-fg); cursor: pointer; font-weight: 700; font-size: .8rem; display: grid; place-items: center; }
+.tache.faite .coche { background: var(--cal-t); }
+.tache-txt { flex: 1; min-width: 0; border: 0; background: none; color: var(--fg); text-align: left; padding: 6px 0; cursor: pointer; display: grid; font: inherit; }
+.tache-txt .sub { font-size: .78rem; color: var(--muted); }
+.tache.faite .tache-txt span:first-child { text-decoration: line-through; color: var(--muted); }
+.tache-ajout { display: flex; gap: 8px; margin-top: 4px; }
+.tache-ajout input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+.sync-carte { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; } .cal-puce.t-google, .cal-mini.t-google { color: var(--cal-g); }
 .fait { opacity: .45; text-decoration: line-through; }
 .cal-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--bad); pointer-events: none; }
 .cal-now::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
@@ -298,7 +310,9 @@ nav.tabs .court { display: none; }
 .cal-leg > span::before { content: ""; width: 10px; height: 10px; border-radius: 3px; border: 2px solid; border-color: inherit; }
 @media (max-width: 640px) {
   .seg button { padding: 6px 11px; font-size: .88rem; }
-  .cal-titre { gap: 6px; }
+  .cal-titre { gap: 6px; flex-wrap: wrap; }
+  .cal-titre h2 { flex: 1 1 100%; }
+  .cal-titre .spacer { display: none; }
   .cal-titre .btn { padding: 6px 10px; }
   .cal-titre .btn.rond { min-width: 34px; }
   .cal-annee { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -656,10 +670,11 @@ function calEvenements(de, a) {
   const out = [];
   for (const s of S.suivis.values()) {
     if (!s.datePrevue || s.datePrevue < de || s.datePrevue > a || s.statut === "annule") continue;
-    const rdv = s.type === "rencontre", deb = s.heure ? new Date(`${s.datePrevue}T${s.heure}:00`) : null;
-    out.push({ type: rdv ? "rdv" : "suivi", id: s.id, fait: s.statut === "fait", jour: s.datePrevue, journee: !deb,
-               debut: deb, fin: deb ? new Date(deb.getTime() + (rdv ? 60 : 30) * 60000) : null,
-               titre: rdv ? clientName(s.clientId) : s.sujet, sous: rdv ? (s.closer ? `avec ${s.closer}` : s.sujet || "") : clientName(s.clientId) });
+    const rdv = s.type === "rencontre", tache = s.type === "tache", deb = s.heure ? new Date(`${s.datePrevue}T${s.heure}:00`) : null;
+    out.push({ type: rdv ? "rdv" : tache ? "tache" : "suivi", id: s.id, fait: s.statut === "fait", jour: s.datePrevue, journee: !deb,
+               debut: deb, fin: deb ? new Date(deb.getTime() + (Number(s.duree) || (rdv ? 60 : 30)) * 60000) : null,
+               titre: rdv ? clientName(s.clientId) : `${tache ? (s.statut === "fait" ? "☑ " : "☐ ") : ""}${s.sujet}`,
+               sous: rdv ? (s.closer ? `avec ${s.closer}` : s.sujet || "") : (s.clientId ? clientName(s.clientId) : "") });
   }
   for (const { v, c } of ventesCalc()) {
     if (v.annulee) continue;
@@ -733,14 +748,14 @@ function viewCalendrier() {
     ? `<b>${d.getDate()} ${MOIS_LONGS[d.getMonth()]}</b> ${d.getFullYear()}`
     : `<b>${MOIS_LONGS[d.getMonth()].replace(/^./, c => c.toUpperCase())}</b> ${d.getFullYear()}`;
   let corps;
-  if (vue === "jour") corps = calGrille([ref], evts);
+  if (vue === "jour") corps = calTaches(ref) + calGrille([ref], evts);
   else if (vue === "semaine") corps = calGrille(Array.from({ length: 7 }, (_, i) => addDays(de, i)), evts);
   else if (vue === "mois") corps = calMois(evts);
   else corps = calAnnee(evts);
   const vues = [["jour", "Jour"], ["semaine", "Semaine"], ["mois", "Mois"], ["annee", "Année"]];
   return `<section class="cal">
     <div class="cal-barre">
-      <button class="btn rond" data-action="cal-nouveau" aria-label="Nouveau rendez-vous"${dis()}>＋</button>
+      <div class="toolbar"><button class="btn" data-action="cal-nouveau"${dis()}>＋ RDV</button><button class="btn" data-action="cal-tache"${dis()}>＋ Tâche</button></div>
       <div class="seg" role="group" aria-label="Affichage">${vues.map(([k, l]) => `<button data-action="cal-vue" data-vue="${k}" aria-pressed="${vue === k}">${l}</button>`).join("")}</div>
     </div>
     <div class="cal-titre"><h2>${titre}</h2><span class="spacer"></span>
@@ -748,9 +763,55 @@ function viewCalendrier() {
       <button class="btn" data-action="cal-nav" data-sens="0">Aujourd'hui</button>
       <button class="btn rond" data-action="cal-nav" data-sens="1" aria-label="Suivant">›</button></div>
     ${corps}
-    <div class="cal-leg small"><span class="t-rdv">RDV client</span><span class="t-suivi">Suivi</span><span class="t-versement">Versement</span>${HEBERGE === "cloudflare" ? `<span class="t-google">Google</span>${S.agenda.connecte ? "" : ` <button class="btn link" data-action="agenda-params">Connecter Google</button>`}` : ""}</div>
+    <div class="cal-leg small"><span class="t-rdv">RDV client</span><span class="t-suivi">Suivi</span><span class="t-versement">Versement</span><span class="t-tache">Tâche</span>${HEBERGE === "cloudflare" ? `<span class="t-google">Google</span>${S.agenda.connecte ? "" : ` <button class="btn link" data-action="agenda-params">Lire mon agenda Google</button>`}` : ""}</div>
+    ${HEBERGE === "cloudflare" ? `<div class="panel panel-pad sync-carte"><div><strong>Voir mes RDV et mes tâches dans Google Agenda</strong><p class="muted small" style="margin:2px 0 0">${S.parametres.get("flux")?.jeton ? "Ton adresse d'abonnement est créée. Ajoute-la dans Google Agenda ou sur ton iPhone si ce n'est pas déjà fait." : "Une adresse privée à ajouter une seule fois dans Google Agenda : tes RDV et tâches s'y ajoutent ensuite tout seuls."}</p></div><button class="btn primary" data-action="flux-params"${dis()}>Synchroniser</button></div>` : ""}
   </section>`;
 }
+// Liste « À faire » de la journée, avec cases à cocher et ajout rapide
+function calTaches(jour) {
+  const l = [...S.suivis.values()].filter(s => s.type === "tache" && s.datePrevue === jour && s.statut !== "annule")
+    .sort((a, b) => (a.statut === "fait") - (b.statut === "fait") || (a.heure || "99").localeCompare(b.heure || "99"));
+  const faites = l.filter(s => s.statut === "fait").length;
+  return `<div class="panel taches"><div class="taches-tete"><h3>À faire ${jour === today() ? "aujourd'hui" : "ce jour-là"}</h3>${l.length ? `<span class="small muted">${faites} sur ${l.length}</span>` : ""}</div>
+    ${l.map(s => `<div class="tache${s.statut === "fait" ? " faite" : ""}"><button class="coche" data-action="tache-coche" data-id="${esc(s.id)}" aria-label="${s.statut === "fait" ? "Marquer à faire" : "Marquer faite"}"${dis()}>${s.statut === "fait" ? "✓" : ""}</button>
+      <button class="tache-txt" data-action="edit-suivi" data-id="${esc(s.id)}"><span>${esc(s.sujet)}</span>${s.heure || s.clientId ? `<span class="sub">${s.heure ? esc(s.heure.replace(":", " h ")) : ""}${s.heure && s.clientId ? " · " : ""}${s.clientId ? esc(clientName(s.clientId)) : ""}</span>` : ""}</button></div>`).join("")}
+    <form id="tache-rapide" class="tache-ajout" data-date="${jour}"><input id="tache-rapide-txt" name="sujet" placeholder="Ajouter une tâche…" autocomplete="off"${dis()}><button class="btn sm" type="submit"${dis()}>Ajouter</button></form></div>`;
+}
+async function cocherTache(id) {
+  const s = S.suivis.get(id); if (!s) return;
+  if (s.statut === "fait") await write(() => S.db.collection("suivis").doc(id).update({ statut: "a_faire", dateRealisee: "" }), "Tâche remise à faire", false);
+  else await marquerFait(id);
+}
+function nouveauJeton() {
+  const o = new Uint8Array(32); crypto.getRandomValues(o);
+  return btoa(String.fromCharCode(...o)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function formFlux() {
+  const f = S.parametres.get("flux") || {}, url = f.jeton ? `${location.origin}/flux/${f.jeton}.ics` : "";
+  openDlg(`<div class="dlg">${head("Synchroniser avec Google Agenda")}<div class="dlg-body">
+    <p style="margin:0">Ton application publie tes <strong>RDV clients</strong> et tes <strong>tâches</strong> à une adresse privée. Ajoute-la une seule fois : les nouveaux RDV et tâches apparaissent ensuite tout seuls.</p>
+    ${url ? `<div class="field"><span>Ton adresse d'abonnement</span><div style="display:flex;gap:6px"><input id="flux-url" readonly value="${esc(url)}"><button type="button" class="btn sm" data-action="copier" data-cible="flux-url">Copier</button></div>
+      <span class="hint">Garde-la pour toi : elle permet de voir tes RDV. Tu peux la changer à tout moment.</span></div>
+    <div><h3 style="margin-bottom:6px">Dans Google Agenda (sur ordinateur)</h3><ol class="small" style="margin:0;padding-left:20px;display:grid;gap:3px">
+      <li>Ouvre <strong>calendar.google.com</strong>.</li><li>À gauche, à côté de <strong>Autres agendas</strong>, clique sur <strong>+</strong>, puis <strong>À partir de l'URL</strong>.</li>
+      <li>Colle l'adresse, puis clique sur <strong>Ajouter un agenda</strong>.</li></ol>
+      <p class="small muted" style="margin:6px 0 0">Google relit cet agenda à son propre rythme, souvent toutes les quelques heures : un nouveau RDV peut prendre un moment à y apparaître.</p></div>
+    <div><h3 style="margin-bottom:6px">Sur ton iPhone (plus rapide)</h3><ol class="small" style="margin:0;padding-left:20px;display:grid;gap:3px">
+      <li><strong>Réglages</strong> → <strong>Calendrier</strong> → <strong>Comptes</strong> → <strong>Ajouter un compte</strong> → <strong>Autre</strong>.</li>
+      <li><strong>Ajouter un calendrier avec abonnement</strong>, colle l'adresse, puis <strong>Suivant</strong> et <strong>Enregistrer</strong>.</li>
+      <li>Dans <strong>Comptes → Récupérer les données</strong>, choisis « Toutes les 15 minutes ».</li></ol></div>`
+    : `<p class="muted" style="margin:0">Crée ton adresse privée pour commencer.</p>`}
+  </div><div class="dlg-foot">${url ? `<button type="button" class="btn danger" data-action="flux-nouveau">Changer l'adresse</button>` : ""}<span class="spacer"></span>
+    ${url ? `<button type="button" class="btn" data-action="close">Fermer</button>` : `<button type="button" class="btn primary" data-action="flux-nouveau"${dis()}>Créer mon adresse</button>`}</div></div>`);
+}
+async function creerFlux(btn) {
+  const existe = !!S.parametres.get("flux")?.jeton;
+  if (existe && !armed(btn)) return;
+  await write(() => S.db.collection("parametres").doc("flux").set({ jeton: nouveauJeton(), tz: tzLocal() || "America/Toronto", creeLe: today() }),
+    existe ? "Nouvelle adresse créée : l'ancienne ne fonctionne plus" : "Adresse créée", false);
+  setTimeout(formFlux, 150);
+}
+
 function calNav(sens) {
   const c = calVue();
   if (sens === 0) { c.ref = today(); return; }
@@ -759,7 +820,7 @@ function calNav(sens) {
         : c.vue === "mois" ? isoLocal(new Date(d.getFullYear(), d.getMonth() + sens, 1)) : isoLocal(new Date(d.getFullYear() + sens, d.getMonth(), 1));
 }
 function calOuvrir(type, id) {
-  if (type === "rdv" || type === "suivi") return formSuivi(S.suivis.get(id));
+  if (type === "rdv" || type === "suivi" || type === "tache") return formSuivi(S.suivis.get(id));
   if (type === "versement") return ficheVente(id);
   const [de, a] = calPlage(), e = calEvenements(de, a).find(x => x.id === id && x.type === "google"); if (!e) return;
   const g = e.g;
@@ -800,7 +861,7 @@ function fuRow(s) {
   return `<div class="fu${late ? " late" : ""}${s.statut === "fait" ? " done" : ""}">
     <span class="when">${s.datePrevue === t ? "Aujourd'hui" : esc(fmtDate(s.datePrevue) || "Sans date")}${s.heure ? `<br>${esc(s.heure.replace(":", " h "))}` : ""}</span>
     <span class="what"><span class="${s.priorite === "haute" ? "prio-haute" : ""}">${esc(s.sujet)}</span>
-      <span class="sub">${esc(TYPES_SUIVI[s.type] || s.type)} · <button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">${esc(clientName(s.clientId))}</button>${v ? ` · ${esc(v.nom)}` : ""}${s.closer ? ` · avec ${esc(s.closer)}` : ""}${s.recurrenceJours ? ` · tous les ${s.recurrenceJours} jours` : ""}${s.resultat ? ` · ${esc(s.resultat)}` : ""}</span></span>
+      <span class="sub">${esc(TYPES_SUIVI[s.type] || s.type)}${s.clientId ? ` · <button class="btn link" data-action="open-client" data-id="${esc(s.clientId)}">${esc(clientName(s.clientId))}</button>` : ""}${v ? ` · ${esc(v.nom)}` : ""}${s.closer ? ` · avec ${esc(s.closer)}` : ""}${s.recurrenceJours ? ` · tous les ${s.recurrenceJours} jours` : ""}${s.resultat ? ` · ${esc(s.resultat)}` : ""}</span></span>
     <span class="toolbar">${s.statut === "a_faire" ? `<button class="btn sm" data-action="fait" data-id="${esc(s.id)}"${dis()}>Fait</button>` : ""}<button class="btn sm" data-action="edit-suivi" data-id="${esc(s.id)}"${dis()}>Modifier</button></span></div>`;
 }
 function viewSuivis() {
@@ -1478,16 +1539,18 @@ function formSuivi(s, preset = {}) {
   const x = s || { type: preset.type || "follow_up", priorite: "normale", datePrevue: preset.date || addDays(today(), 1), heure: preset.heure || "", clientId: preset.clientId || "", venteId: preset.venteId || "",
                    sujet: preset.type === "rencontre" && preset.clientId ? `Rendez-vous avec ${clientName(preset.clientId)}` : "" };
   const clients = [...S.clients.values()].sort(byName);
-  if (!clients.length) { toast("Ajoute d'abord un client.", true); return; }
+  if (!clients.length && x.type !== "tache") { toast("Ajoute d'abord un client.", true); return; }
+  const dureeDefaut = x.duree || (x.type === "rencontre" ? 60 : 30);
   const ventesOpts = cid => `<option value="">Aucune</option>` + [...S.ventes.values()].filter(v => v.clientId === cid).map(v => `<option value="${esc(v.id)}"${v.id === x.venteId ? " selected" : ""}>${esc(v.nom)}</option>`).join("");
-  openDlg(`<form class="dlg" id="form-suivi" novalidate>${head(s ? "Modifier le suivi" : x.type === "rencontre" ? "Nouveau rendez-vous" : "Nouveau suivi")}
+  openDlg(`<form class="dlg" id="form-suivi" novalidate>${head(s ? (x.type === "tache" ? "Modifier la tâche" : "Modifier le suivi") : x.type === "rencontre" ? "Nouveau rendez-vous" : x.type === "tache" ? "Nouvelle tâche" : "Nouveau suivi")}
     <div class="dlg-body"><div class="grid">
-      ${field("Client", `<select id="s-client" name="clientId">${clients.map(c => `<option value="${esc(c.id)}"${c.id === x.clientId ? " selected" : ""}>${esc(c.nom)}</option>`).join("")}</select>`)}
-      ${field("Vente liée", `<select id="s-vente" name="venteId">${ventesOpts(x.clientId || clients[0].id)}</select>`)}
+      ${field("Client", `<select id="s-client" name="clientId"><option value="">Aucun (tâche perso)</option>${clients.map(c => `<option value="${esc(c.id)}"${c.id === x.clientId ? " selected" : ""}>${esc(c.nom)}</option>`).join("")}</select>`)}
+      ${field("Vente liée", `<select id="s-vente" name="venteId">${ventesOpts(x.clientId || "")}</select>`)}
       ${field("Sujet", `<input id="s-sujet" name="sujet" value="${esc(x.sujet || "")}" placeholder="Ex. Rappeler pour la soumission">`, "full")}
       ${field("Type", `<select id="s-type" name="type">${Object.entries(TYPES_SUIVI).map(([k, l]) => `<option value="${k}"${k === x.type ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
       ${field("Date prévue", `<input id="s-date" name="datePrevue" type="date" value="${esc(x.datePrevue || "")}">`)}
       ${field("Heure (facultatif)", `<input id="s-heure" name="heure" type="time" value="${esc(x.heure || "")}">`)}
+      ${field("Durée", `<select id="s-duree" name="duree">${[15, 30, 45, 60, 90, 120, 180, 240].map(m => `<option value="${m}"${m === dureeDefaut ? " selected" : ""}>${libRappel(m)}</option>`).join("")}</select>`)}
       ${field("Priorité", `<select id="s-prio" name="priorite">${[["basse", "Basse"], ["normale", "Normale"], ["haute", "Haute"]].map(([k, l]) => `<option value="${k}"${k === x.priorite ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
       ${field("Répéter tous les … jours", `<input id="s-rec" name="recurrenceJours" type="number" min="1" step="1" value="${x.recurrenceJours || ""}" placeholder="Non">`, "", "Le suivi se recrée quand tu le marques fait.")}
       ${s ? field("Résultat", `<textarea id="s-res" name="resultat">${esc(x.resultat || "")}</textarea>`, "full") : ""}
@@ -1501,17 +1564,19 @@ function formSuivi(s, preset = {}) {
       form.clientId.addEventListener("change", () => { form.venteId.innerHTML = ventesOpts(form.clientId.value); });
       form.type.addEventListener("change", () => { $("#s-rdv").hidden = form.type.value !== "rencontre"; });
       form.sujet.focus();
+      if (x.type === "tache") form.sujet.placeholder = "Ex. Préparer la soumission de Marc";
       form.addEventListener("submit", async e => {
         e.preventDefault();
         const f = Object.fromEntries(new FormData(form));
-        if (!f.sujet.trim()) return showErr("#s-err", "Indique le sujet du suivi.");
+        if (!f.sujet.trim()) return showErr("#s-err", f.type === "tache" ? "Écris la tâche à faire." : "Indique le sujet du suivi.");
+        if (f.type !== "tache" && !f.clientId) return showErr("#s-err", "Choisis le client.");
         const rec = Math.floor(num(f.recurrenceJours)), estRdv = f.type === "rencontre", rappels = estRdv ? lireRappels(form, "s-") : [];
         if (estRdv && !f.datePrevue) return showErr("#s-err", "Indique la date du rendez-vous.");
         if (estRdv && rappels.length && !f.heure) return showErr("#s-err", "Indique l'heure du rendez-vous pour que les rappels sonnent au bon moment.");
-        const body = { ...(s || {}), clientId: f.clientId, venteId: f.venteId || "", type: f.type, sujet: f.sujet.trim(), datePrevue: f.datePrevue || "", heure: f.heure || "", closer: estRdv ? (f["s-closer"] || "").trim() : (s?.closer || ""), rappels: estRdv ? rappels : (s?.rappels ?? null), priorite: f.priorite,
+        const body = { ...(s || {}), duree: Number(f.duree) || 30, clientId: f.clientId || "", venteId: f.venteId || "", type: f.type, sujet: f.sujet.trim(), datePrevue: f.datePrevue || "", heure: f.heure || "", closer: estRdv ? (f["s-closer"] || "").trim() : (s?.closer || ""), rappels: estRdv ? rappels : (s?.rappels ?? null), priorite: f.priorite,
                        recurrenceJours: rec > 0 ? rec : null, resultat: (f.resultat ?? s?.resultat ?? "").trim(), statut: s?.statut || "a_faire", dateRealisee: s?.dateRealisee || "", creeLe: s?.creeLe || today() };
         delete body.id;
-        await write(() => (s ? S.db.collection("suivis").doc(s.id) : S.db.collection("suivis").doc()).set(body), s ? "Suivi mis à jour" : "Suivi ajouté");
+        await write(() => (s ? S.db.collection("suivis").doc(s.id) : S.db.collection("suivis").doc()).set(body), f.type === "tache" ? (s ? "Tâche mise à jour" : "Tâche ajoutée") : f.type === "rencontre" ? (s ? "Rendez-vous mis à jour" : "Rendez-vous ajouté") : (s ? "Suivi mis à jour" : "Suivi ajouté"));
       });
     });
 }
@@ -1675,6 +1740,10 @@ document.addEventListener("click", e => {
     case "cal-mois": S.cal.vue = "mois"; S.cal.ref = el.dataset.date; render(); break;
     case "cal-ouvrir": calOuvrir(el.dataset.type, el.dataset.id); break;
     case "cal-nouveau": formSuivi(null, { type: "rencontre", date: S.cal.ref || today() }); break;
+    case "cal-tache": formSuivi(null, { type: "tache", date: S.cal.ref || today() }); break;
+    case "tache-coche": cocherTache(id); break;
+    case "flux-params": formFlux(); break;
+    case "flux-nouveau": creerFlux(el); break;
     case "agenda-suppr": if (armed(el)) write(() => S.db.collection("parametres").doc("agenda").delete(), "Agenda Google déconnecté").then(() => { S.agenda = { connecte: false, evenements: [], erreur: "", charge: true }; render(); }); break;
     case "ics-info": toast("L'ajout au calendrier se fait depuis l'application installée (version Cloudflare)."); break;
     case "edit-suivi": formSuivi(S.suivis.get(id)); break;
@@ -1698,6 +1767,15 @@ document.addEventListener("click", e => {
   }
 });
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) { S.tab = b.dataset.tab; lsSet("onglet", S.tab); render(); } });
+document.addEventListener("submit", async e => {
+  if (e.target.id !== "tache-rapide") return;
+  e.preventDefault();
+  const champ = e.target.sujet, sujet = champ.value.trim(); if (!sujet || !canWrite()) return;
+  champ.value = "";
+  await write(() => S.db.collection("suivis").doc().set({ clientId: "", venteId: "", type: "tache", sujet, datePrevue: e.target.dataset.date, heure: "", duree: 30,
+    statut: "a_faire", priorite: "normale", recurrenceJours: null, resultat: "", dateRealisee: "", creeLe: today() }), "Tâche ajoutée", false);
+  setTimeout(() => $("#tache-rapide-txt")?.focus(), 50);
+});
 document.addEventListener("input", e => { if (e.target.id === "f-q") { S.filtre.q = e.target.value; render(); } });
 document.addEventListener("change", e => {
   if (e.target.id === "f-etat") { S.filtre.etat = e.target.value; render(); }
